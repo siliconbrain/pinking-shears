@@ -1,0 +1,129 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>✂ Pinking Shears ✂</title>
+        <style>
+            html {
+                background-color: rgb(191,191,191);
+                font-family: sans-serif;
+                font-size: 11pt;
+            }
+            #image-preview {
+                background-color: fuchsia;
+                height: 480px;
+                object-fit: contain;
+                width: 480px;
+            }
+            #image-preview, #pixelated-preview {
+                border: 1px solid #888;
+            }
+            #resolution, #pixel-size {
+                width: 46px;
+            }
+        </style>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                const imageFileInput = document.getElementById('image-file');
+                const resolutionInput = document.getElementById('resolution');
+                const pixelSizeInput = document.getElementById('pixel-size');
+                const imagePreview = document.getElementById('image-preview');
+                const pixelatedPreview = document.getElementById('pixelated-preview');
+
+                const ctx = pixelatedPreview.getContext('2d');
+
+                function isImageValid() {
+                    return imagePreview.naturalWidth !== 0 && imagePreview.naturalHeight !== 0;
+                }
+
+                function transferImageToCanvas(imageSource) {
+                    const image = {
+                        width: imageSource.naturalWidth,
+                        height: imageSource.naturalHeight
+                    };
+                    
+                    const size = Math.max(image.height, image.width);
+                    ctx.canvas.width = ctx.canvas.height = size;
+
+                    const offsetX = (size - image.width) / 2;
+                    const offsetY = (size - image.height) / 2;
+                    
+                    ctx.drawImage(imageSource, offsetX, offsetY);
+                }
+
+                function tupleToRgbaString(tuple) {
+                    const filler = [0, 0, 0, 255].slice(tuple.length);
+                    return 'rgba(' + Array.from(tuple).concat(filler).join() + ')';
+                }
+
+                function makeArea(left, top, width, height) {
+                    return {left, top, width, height};
+                }
+
+                function* colorsIn(imageData, area) {
+                    for (var v = area.top; v < Math.min(imageData.height, area.top + area.height); v++) {
+                        for (var h = area.left; h < Math.min(imageData.width, area.left + area.width); h++) {
+                            const offset = (v * imageData.width) + h;
+                            yield imageData.data.slice((offset + 0) * 4, (offset + 1) * 4);
+                        }
+                    }
+                }
+
+                function calcPixelColors(imageData, resolution) {
+                    const rectWidth = Math.max(1, Math.floor(imageData.width / resolution));
+                    const rectHeight = Math.max(1, Math.floor(imageData.height / resolution));
+                    
+                    const result = [];
+                    for (var v = 0; v < resolution; v++) {
+                        const row = [];
+                        for (var h = 0; h < resolution; h++) {
+                            const colors = colorsIn(imageData, makeArea(h * rectWidth, v * rectHeight, rectWidth, rectHeight));
+                            const color = colors.next().value;
+                            row.push(color);
+                        }
+                        result.push(row);
+                    }
+                    return result;
+                }
+
+                function redraw() {
+                    if (!isImageValid()) return;
+
+                    transferImageToCanvas(imagePreview);
+                    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    const resolution = parseInt(resolutionInput.value);
+                    const pixelSize = parseInt(pixelSizeInput.value);
+                    ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
+                    const colors = calcPixelColors(imageData, resolution);
+                    colors.forEach((row, v) => row.forEach((color, h) => {
+                        ctx.fillStyle = tupleToRgbaString(color);
+                        ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
+                    }));
+                }
+
+                imagePreview.addEventListener('load', redraw);
+                resolutionInput.addEventListener('change', redraw);
+                pixelSizeInput.addEventListener('change', redraw);
+
+                imageFileInput.addEventListener('change', function() {
+                    if (imageFileInput.files.length > 0) {
+                        imagePreview.src = URL.createObjectURL(imageFileInput.files[0]);
+                    }
+                })
+            })
+        </script>
+    </head>
+    <body>
+        <section id="controls">
+            <label for="image-file">Image: </label>
+            <input type="file" id="image-file" accept="image/*">
+            <label for="resolution">Resolution:</label>
+            <input type="number" id="resolution" required min="1" value="8">
+            <label for="pixel-size">Pixel size:</label>
+            <input type="number" id="pixel-size" required min="1" value="4">
+        </section>
+        <div>
+            <img id="image-preview" width="480" height="480">
+            <canvas id="pixelated-preview" width="480" height="480"></canvas>
+        </div>
+    </body>
+</html>
