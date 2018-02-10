@@ -3,37 +3,33 @@ function isImageValid(imageElement) {
 }
 
 function transferImageToCanvas(imageElement, canvasContext) {
-    const image = {
-        width: imageElement.naturalWidth,
-        height: imageElement.naturalHeight
-    };
+    const imageWidth = imageElement.naturalWidth,
+          imageHeight = imageElement.naturalHeight;
     
-    const size = Math.max(image.height, image.width);
+    const size = Math.max(imageHeight, imageWidth);
     const canvas = canvasContext.canvas;
     canvas.width = canvas.height = size;
 
-    const offsetX = (size - image.width) / 2;
-    const offsetY = (size - image.height) / 2;
+    const offsetX = (size - imageWidth) / 2;
+    const offsetY = (size - imageHeight) / 2;
     
     canvasContext.drawImage(imageElement, offsetX, offsetY);
 }
 
-function tupleToRgbaString(tuple) {
-    const filler = [0, 0, 0, 255].slice(tuple.length);
-    return 'rgba(' + Array.from(tuple).concat(filler).join(',') + ')';
+function arrayToRgbaString(array) {
+    const filler = [0, 0, 0, 255].slice(array.length);
+    return `rgba(${ array.concat(filler).join(',') })`;
 }
 
 function makeArea(left, top, width, height) {
     return {left, top, width, height};
 }
 
-function* colorsIn(imageData, area) {
-    for (var v = area.top; v < Math.min(imageData.height, area.top + area.height); v++) {
-        for (var h = area.left; h < Math.min(imageData.width, area.left + area.width); h++) {
-            const offset = (v * imageData.width) + h;
-            yield imageData.data.slice((offset + 0) * 4, (offset + 1) * 4);
-        }
-    }
+function colorsIn(imageData, area) {
+    const rows = L.range(area.top, Math.min(imageData.height, area.top + area.height));
+    const cols = L.range(area.left, Math.min(imageData.width, area.left + area.width));
+    return rows.flatMap(rowIdx => cols.map(colIdx => (rowIdx * imageData.width) + colIdx))
+        .map(offset => imageData.data.slice((offset + 0) * 4, (offset + 1) * 4));
 }
 
 function sampleRectangleSize(imageData, resolution) {
@@ -46,42 +42,30 @@ function sampleRectangleSize(imageData, resolution) {
 function makeTileSampledAlgo(coreFn) {
     return function(imageData, resolution) {
         const sampleRect = sampleRectangleSize(imageData, resolution);
-    
-        const result = [];
-        for (var v = 0; v < resolution; v++) {
-            const row = [];
-            for (var h = 0; h < resolution; h++) {
-                const sampleArea = makeArea(h * sampleRect.width, v * sampleRect.height, sampleRect.width, sampleRect.height);
-                const colors = colorsIn(imageData, sampleArea);
-                const color = coreFn(colors);
-                row.push(color);
-            }
-            result.push(row);
-        }
-        return result;
+        const rows = L.range(0, resolution);
+        const cols = L.range(0, resolution);
+        return rows.map(rowIdx => cols.map(colIdx => {
+            const sampleArea = makeArea(colIdx * sampleRect.width, rowIdx * sampleRect.height, sampleRect.width, sampleRect.height);
+            const colors = colorsIn(imageData, sampleArea);
+            const color = coreFn(colors);
+            return color;
+        }));
     };
 }
 
 function frequencies(values, equality) {
-    if (equality) {
-        const frequencies = [];
-        for (const value of values) {
-            const idx = frequencies.findIndex(([val, cnt]) => equality(val, value));
-            if (idx < 0) {
-                frequencies.push([value, 0]);
-            } else {
-                frequencies[idx][1] += 1;
-            }
+    equality = equality || function(a, b) { return a === b; };
+
+    const frequencies = [];
+    for (const value of values) {
+        const idx = frequencies.findIndex(([val, cnt]) => equality(val, value));
+        if (idx < 0) {
+            frequencies.push([value, 0]);
+        } else {
+            frequencies[idx][1] += 1;
         }
-        return frequencies;
-    } else {
-        const frequencies = {};
-        for (const value of values) {
-            const count = frequencies[value];
-            frequencies[value] = (count || 0) + 1;
-        }
-        return Object.entries(frequencies);
     }
+    return frequencies;
 }
 
 function areSameColor(colorA, colorB) {
@@ -105,30 +89,18 @@ function areAlmostSameColor(tolerance) {
 
 function max(iterable, compareFunction) {
     compareFunction = compareFunction || function(a, b) { return a - b; };
-    var result = undefined;
-    for (const value of iterable) {
-        if (result === undefined || compareFunction(result, value) < 0) {
-            result = value;
-        }
-    }
-    return result;
+    return L.reduce(iterable, (res, val) => compareFunction(res, val) < 0 ? val : res);
 }
 
 function min(iterable, compareFunction) {
     compareFunction = compareFunction || function(a, b) { return a - b; };
-    var result = undefined;
-    for (const value of iterable) {
-        if (result === undefined || compareFunction(result, value) > 0) {
-            result = value;
-        }
-    }
-    return result;
+    return L.reduce(iterable, (res, val) => compareFunction(res, val) > 0 ? val : res);
 }
 
 const algorithms = [
     {
         name: "first color in tile",
-        func: makeTileSampledAlgo(function(colors) { return colors.next().value; })
+        func: makeTileSampledAlgo(function(colors) { return L.first(colors); })
     },
     {
         name: "most significant color in tile",
@@ -160,55 +132,63 @@ const algorithms = [
             var cnt = 0, sum = [0, 0, 0, 0];
             for (const color of colors) {
                 cnt++;
-                color.forEach((v ,i) => { sum[i] += v; });
+                color.forEach((v, i) => { sum[i] += v; });
             }
             return sum.map(v => Math.floor(v / cnt));
         })
     },
 ];
 
+function createAlgoElements(algoName) {
+    const container = document.createElement('div');
+    container.classList.add('algo');
+    const canvas = document.createElement('canvas');
+    canvas.dataset.name = canvas.title = algoName;
+    container.appendChild(canvas);
+    return container;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-    const imageFileInput = document.getElementById('image-file');
-    const resolutionInput = document.getElementById('resolution');
-    const pixelSizeInput = document.getElementById('pixel-size');
-    const imagePreview = document.getElementById('image-preview');
+    const inputImageFileElement = document.getElementById('input-image-file');
+    const outputResolutionElement = document.getElementById('output-resolution');
+    const outputPixelSizeElement = document.getElementById('output-pixel-size');
+    const inputImagePreviewElement = document.getElementById('input-image-preview');
     const algosSection = document.getElementById("algos");
 
     function redraw() {
-        if (!isImageValid(imagePreview)) return;
+        if (!isImageValid(inputImagePreviewElement)) return;
 
-        const resolution = parseInt(resolutionInput.value);
-        const pixelSize = parseInt(pixelSizeInput.value);
+        const resolution = parseInt(outputResolutionElement.value);
+        const pixelSize = parseInt(outputPixelSizeElement.value);
 
         algorithms.forEach(({name, func}, idx) => {
-            let canvasElement = algos.getElementsByTagName('canvas')[idx];
-            if (canvasElement === undefined) {
-                canvasElement = document.createElement('canvas');
-                canvasElement.dataset.name = name;
-                canvasElement.title = name;
-                algosSection.appendChild(canvasElement);
+            let algoElement = algosSection.getElementsByClassName('algo')[idx];
+            if (algoElement === undefined) {
+                algoElement = createAlgoElements(name);
+                algosSection.appendChild(algoElement);
             }
+            const canvasElement = algoElement.getElementsByTagName('canvas')[0];
             const ctx = canvasElement.getContext('2d');
 
-            transferImageToCanvas(imagePreview, ctx);
+            transferImageToCanvas(inputImagePreviewElement, ctx);
             const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
             ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
             console.log("running algo:", name);
             const colors = func(imageData, resolution);
             colors.forEach((row, v) => row.forEach((color, h) => {
-                ctx.fillStyle = tupleToRgbaString(color);
+                ctx.fillStyle = arrayToRgbaString(Array.from(color));
                 ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
             }));
         });
     }
 
-    imagePreview.addEventListener('load', redraw);
-    resolutionInput.addEventListener('change', redraw);
-    pixelSizeInput.addEventListener('change', redraw);
+    inputImagePreviewElement.addEventListener('load', redraw);
+    outputResolutionElement.addEventListener('change', redraw);
+    outputPixelSizeElement.addEventListener('change', redraw);
 
-    imageFileInput.addEventListener('change', function() {
-        if (imageFileInput.files.length > 0) {
-            imagePreview.src = URL.createObjectURL(imageFileInput.files[0]);
+    inputImageFileElement.addEventListener('change', function() {
+        if (inputImageFileElement.files.length > 0) {
+            inputImagePreviewElement.src = URL.createObjectURL(inputImageFileElement.files[0]);
         }
     })
 });
