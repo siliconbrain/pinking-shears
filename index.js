@@ -32,9 +32,10 @@ function colorsIn(imageData, area) {
 }
 
 function sampleRectangleSize(imageData, resolution) {
+    console.assert(imageData.width === imageData.height, "canvas is not square");
     return {
-        width: Math.max(1, Math.floor(imageData.width / resolution)),
-        height: Math.max(1, Math.floor(imageData.height / resolution))
+        width: Math.ceil(imageData.width / resolution),
+        height: Math.ceil(imageData.height / resolution)
     };
 }
 
@@ -43,11 +44,14 @@ function makeTileSampledAlgo(coreFn) {
         const sampleRect = sampleRectangleSize(imageData, resolution);
         const rows = L.range(0, resolution);
         const cols = L.range(0, resolution);
-        return rows.map(rowIdx => cols.map(colIdx => {
+        return rows.map(rowIdx => cols.flatMap(colIdx => {
             const sampleArea = makeArea(colIdx * sampleRect.width, rowIdx * sampleRect.height, sampleRect.width, sampleRect.height);
             const colors = colorsIn(imageData, sampleArea);
+            if (L.isEmpty(colors)) return [];
+            else {
             const color = coreFn(colors);
-            return color;
+                return [color];
+            }
         }));
     };
 }
