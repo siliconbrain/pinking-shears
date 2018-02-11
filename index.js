@@ -16,9 +16,8 @@ function transferImageToCanvas(imageElement, canvasContext) {
     canvasContext.drawImage(imageElement, offsetX, offsetY);
 }
 
-function arrayToRgbaString(array) {
-    const filler = [0, 0, 0, 255].slice(array.length);
-    return `rgba(${ array.concat(filler).join(',') })`;
+function makeRgbaString(r = 0, g = 0, b = 0, a = 255) {
+    return `rgba(${r},${g},${b},${a / 255})`;
 }
 
 function makeArea(left, top, width, height) {
@@ -176,7 +175,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log("running algo:", name);
             const colors = func(imageData, resolution);
             colors.forEach((row, v) => row.forEach((color, h) => {
-                ctx.fillStyle = arrayToRgbaString(Array.from(color));
+                ctx.fillStyle = makeRgbaString(...color);
                 ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
             }));
         });
