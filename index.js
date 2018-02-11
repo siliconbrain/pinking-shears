@@ -104,6 +104,16 @@ function isTransparent(color) {
     return color[3] === 0;
 }
 
+function averageOf(colors) {
+    var cntA = 0, cntC = 0, sum = [0, 0, 0, 0];
+    for (const color of colors) {
+        cntA++;
+        if (!isTransparent(color)) cntC++;
+        color.forEach((v, i) => sum[i] += v);
+    }
+    return [...sum.slice(0, 3).map(v => cntC === 0 ? 0 : v / cntC), sum[3] / cntA].map(v => Math.round(v));
+}
+
 const algorithms = [
     {
         name: "first color in tile",
@@ -135,15 +145,7 @@ const algorithms = [
     },
     {
         name: "average color in tile",
-        func: makeTileSampledAlgo(function(colors) {
-            var cntA = 0, cntC = 0, sum = [0, 0, 0, 0];
-            for (const color of colors) {
-                cntA++;
-                if (!isTransparent(color)) cntC++;
-                color.forEach((v, i) => sum[i] += v);
-            }
-            return [...sum.slice(0, 3).map(v => cntC === 0 ? 0 : v / cntC), sum[3] / cntA].map(v => Math.round(v));
-        })
+        func: makeTileSampledAlgo(averageOf)
     },
 ];
 
