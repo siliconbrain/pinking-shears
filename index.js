@@ -90,13 +90,13 @@ function areAlmostSameColor(tolerance) {
     }
 }
 
-function max(iterable, compareFunction) {
-    compareFunction = compareFunction || function(a, b) { return a - b; };
+function numberCompareFunction(a, b) { return a - b; }
+
+function max(iterable, compareFunction = numberCompareFunction) {
     return L.reduce(iterable, (res, val) => compareFunction(res, val) < 0 ? val : res);
 }
 
-function min(iterable, compareFunction) {
-    compareFunction = compareFunction || function(a, b) { return a - b; };
+function min(iterable, compareFunction = numberCompareFunction) {
     return L.reduce(iterable, (res, val) => compareFunction(res, val) > 0 ? val : res);
 }
 
