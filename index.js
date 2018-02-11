@@ -100,6 +100,10 @@ function min(iterable, compareFunction) {
     return L.reduce(iterable, (res, val) => compareFunction(res, val) > 0 ? val : res);
 }
 
+function isTransparent(color) {
+    return color[3] === 0;
+}
+
 const algorithms = [
     {
         name: "first color in tile",
@@ -132,12 +136,13 @@ const algorithms = [
     {
         name: "average color in tile",
         func: makeTileSampledAlgo(function(colors) {
-            var cnt = 0, sum = [0, 0, 0, 0];
+            var cntA = 0, cntC = 0, sum = [0, 0, 0, 0];
             for (const color of colors) {
-                cnt++;
-                color.forEach((v, i) => { sum[i] += v; });
+                cntA++;
+                if (!isTransparent(color)) cntC++;
+                color.forEach((v, i) => sum[i] += v);
             }
-            return sum.map(v => Math.floor(v / cnt));
+            return [...sum.slice(0, 3).map(v => cntC === 0 ? 0 : v / cntC), sum[3] / cntA].map(v => Math.round(v));
         })
     },
 ];
