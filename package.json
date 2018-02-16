@@ -1,0 +1,30 @@
+{
+  "name": "pinking-shears",
+  "version": "1.0.0",
+  "description": "Computer-assisted pixel art conversion tool",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "watch": "watchify main.js -o static/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/siliconbrain/pinking-shears.git"
+  },
+  "author": {
+    "name": "Dudás Ádám",
+    "email": "sir.dudas.adam@gmail.com",
+    "url": "https://siliconbrain.github.io"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/siliconbrain/pinking-shears/issues"
+  },
+  "homepage": "https://siliconbrain.github.io/pinking-shears",
+  "devDependencies": {
+    "watchify": "^3.10.0"
+  },
+  "dependencies": {
+    "fluent-style-sheets": "^1.0.1"
+  }
+}

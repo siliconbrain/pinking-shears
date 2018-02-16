@@ -1,3 +1,5 @@
+const L = require('./lazy');
+
 function isImageValid(imageElement) {
     return imageElement.naturalWidth !== 0 && imageElement.naturalHeight !== 0;
 }
@@ -159,6 +161,8 @@ function createAlgoElements(algoName) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    document.querySelector('head').appendChild(require('./style').createStyleElement());
+    
     const inputImageFileElement = document.getElementById('input-image-file');
     const outputResolutionElement = document.getElementById('output-resolution');
     const outputPixelSizeElement = document.getElementById('output-pixel-size');
