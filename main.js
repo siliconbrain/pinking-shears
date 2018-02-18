@@ -1,6 +1,11 @@
+const {canvas, div, img, input, label, main, makeDOMDriver, section} = require('@cycle/dom');
+const {run} = require('@cycle/rxjs-run');
+const {adapt} = require('@cycle/run/lib/adapt');
+const rxjs = require('rxjs');
+
 const L = require('./lazy');
 
-function isImageValid(imageElement) {
+function isValidImage(imageElement) {
     return imageElement.naturalWidth !== 0 && imageElement.naturalHeight !== 0;
 }
 
@@ -151,58 +156,114 @@ const algorithms = [
     },
 ];
 
-function createAlgoElements(algoName) {
-    const container = document.createElement('div');
-    container.classList.add('algo');
-    const canvas = document.createElement('canvas');
-    canvas.dataset.name = canvas.title = algoName;
-    container.appendChild(canvas);
-    return container;
+function app({DOM}) {
+    const file$ = DOM.select('#image-file-input').events('change')
+        .map(ev => ev.target.files)
+        .filter(files => files.length > 0)
+        .map(files => files[0]);
+    const imgSrc$ = file$.map(file => URL.createObjectURL(file));
+    const image$ = DOM.select('#input').select('.preview').select('img').events('load').map(ev => ev.target).filter(isValidImage);
+    const outputResolution$ = DOM.select('#output-resolution').events('change').map(ev => parseInt(ev.target.value)).startWith(64);
+    const outputPixelSize$ = DOM.select('#output-pixel-size').events('change').map(ev => parseInt(ev.target.value)).startWith(4);
+    
+    const inputPreviewImageBackgroundColor$ = rxjs.Observable.combineLatest(...['red', 'green', 'blue', 'alpha'].map(
+        component => DOM
+            .select(`#input .preview .background-color .color-component-${component} input`)
+            .events('change')
+            .map(ev => ev.target.value)
+            .startWith(0)
+    ));
+
+    return {
+        DOM: rxjs.Observable.combineLatest(
+            imgSrc$.startWith(null),
+            outputResolution$,
+            outputPixelSize$,
+            inputPreviewImageBackgroundColor$,
+            (imgSrc, outputResolution, outputPixelSize, inputPreviewImageBackgroundColor) => main([
+            section('#input', [
+                div('.file-input', [
+                    label({attrs: {for: 'image-file-input'}}, "Input image: "),
+                    input('#image-file-input', {attrs: {type: 'file', accept: 'image/*'}}),
+                ]),
+                div('.preview', [
+                    img({attrs: {src: imgSrc || undefined}}),
+                    canvas({attrs: {
+                        width: 480,
+                        height: 480,
+                        style: `background-color: ${makeRgbaString(...inputPreviewImageBackgroundColor)}`,
+                    }}),
+                    div('.background-color', [
+                        label('Background color:'),
+                        div('.color-component-input.color-component-red', [
+                            label('R'),
+                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[0]}})
+                        ]),
+                        div('.color-component-input.color-component-green', [
+                            label('G'),
+                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[1]}})
+                        ]),
+                        div('.color-component-input.color-component-blue', [
+                            label('B'),
+                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[2]}})
+                        ]),
+                        div('.color-component-input.color-component-alpha', [
+                            label('A'),
+                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[3]}})
+                        ]),
+                    ])
+                ]),
+            ]),
+            section('#output', [
+                div('.output-param', [
+                    label({attrs: {for: 'output-resolution'}}, "Output resolution:"),
+                    input('#output-resolution', {attrs: {type: 'number', required: true, min: 1, value: outputResolution}}),
+                ]),
+                div('.output-param', [
+                    label({attrs: {for: 'output-pixel-size'}}, "Output pixel size:"),
+                    input('#output-pixel-size', {attrs: {type: 'number', required: true, min: 1, value: outputPixelSize}}),                    
+                ]),
+                section('#algos', algorithms.map(algo => 
+                    div('.algo', [
+                        canvas({attrs: {title: algo.name}}),
+                    ])
+                )),
+            ]),
+        ])),
+        sideEffect: rxjs.Observable.merge(
+            image$.map(image => ({
+                func: (image) => {
+                    const canvas = document.querySelector('#input .preview canvas');
+                    const ctx = canvas.getContext('2d');
+                    transferImageToCanvas(image, ctx);
+                },
+                args: [image],
+            })),
+            ...algorithms.map(algo => rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$)
+                .map(([image, resolution, pixelSize]) => {
+                    const canvasElement = document.querySelector(`canvas[title="${algo.name}"`);
+                    const ctx = canvasElement.getContext('2d');
+        
+                    transferImageToCanvas(image, ctx);
+                    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
+                    console.log("running algo:", algo.name);
+                    const colors = algo.func(imageData, resolution);
+                    colors.forEach((row, v) => row.forEach((color, h) => {
+                        ctx.fillStyle = makeRgbaString(...color);
+                        ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
+                    }));
+                })
+            ),
+        ),
+    };
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('head').appendChild(require('./style').createStyleElement());
-    
-    const inputImageFileElement = document.getElementById('input-image-file');
-    const outputResolutionElement = document.getElementById('output-resolution');
-    const outputPixelSizeElement = document.getElementById('output-pixel-size');
-    const inputImagePreviewElement = document.getElementById('input-image-preview');
-    const algosSection = document.getElementById("algos");
 
-    function redraw() {
-        if (!isImageValid(inputImagePreviewElement)) return;
-
-        const resolution = parseInt(outputResolutionElement.value);
-        const pixelSize = parseInt(outputPixelSizeElement.value);
-
-        algorithms.forEach(({name, func}, idx) => {
-            let algoElement = algosSection.getElementsByClassName('algo')[idx];
-            if (algoElement === undefined) {
-                algoElement = createAlgoElements(name);
-                algosSection.appendChild(algoElement);
-            }
-            const canvasElement = algoElement.getElementsByTagName('canvas')[0];
-            const ctx = canvasElement.getContext('2d');
-
-            transferImageToCanvas(inputImagePreviewElement, ctx);
-            const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
-            ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
-            console.log("running algo:", name);
-            const colors = func(imageData, resolution);
-            colors.forEach((row, v) => row.forEach((color, h) => {
-                ctx.fillStyle = makeRgbaString(...color);
-                ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
-            }));
-        });
-    }
-
-    inputImagePreviewElement.addEventListener('load', redraw);
-    outputResolutionElement.addEventListener('change', redraw);
-    outputPixelSizeElement.addEventListener('change', redraw);
-
-    inputImageFileElement.addEventListener('change', function() {
-        if (inputImageFileElement.files.length > 0) {
-            inputImagePreviewElement.src = URL.createObjectURL(inputImageFileElement.files[0]);
-        }
-    })
+    run(app, {
+        DOM: makeDOMDriver('body'),
+        sideEffect: funcAndArgs$ => { adapt(funcAndArgs$).subscribe(({func, args}) => func(...args)); }
+    });
 });
