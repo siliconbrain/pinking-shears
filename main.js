@@ -93,7 +93,7 @@ function colorDistance(colorA, colorB) {
 
 function areAlmostSameColor(tolerance) {
     return function(colorA, colorB) {
-        return colorDistance(colorA, colorB) < tolerance;
+        return colorDistance(colorA, colorB) <= tolerance;
     }
 }
 
