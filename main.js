@@ -1,4 +1,4 @@
-const {canvas, div, img, input, label, main, makeDOMDriver, section} = require('@cycle/dom');
+const {canvas, div, header, img, input, label, main, makeDOMDriver, section} = require('@cycle/dom');
 const {run} = require('@cycle/rxjs-run');
 const {adapt} = require('@cycle/run/lib/adapt');
 const rxjs = require('rxjs');
@@ -47,7 +47,7 @@ function sampleRectangleSize(imageData, resolution) {
 }
 
 function makeTileSampledAlgo(coreFn) {
-    return function(imageData, resolution) {
+    return function(imageData, resolution, params) {
         const sampleRect = sampleRectangleSize(imageData, resolution);
         const rows = L.range(0, resolution);
         const cols = L.range(0, resolution);
@@ -56,7 +56,7 @@ function makeTileSampledAlgo(coreFn) {
             const colors = colorsIn(imageData, sampleArea);
             if (L.isEmpty(colors)) return [];
             else {
-            const color = coreFn(colors);
+            const color = coreFn(colors, params);
                 return [color];
             }
         }));
@@ -124,64 +124,78 @@ function averageOf(colors) {
 const algorithms = [
     {
         name: "first color in tile",
-        func: makeTileSampledAlgo(function(colors) { return L.first(colors); })
+        func: makeTileSampledAlgo(function(colors) { return L.first(colors); }),
     },
     {
         name: "most significant color in tile",
         func: makeTileSampledAlgo(function(colors) {
             return max(frequencies(colors, areSameColor), (a, b) => a[1] - b[1])[0];
-        })
+        }),
     },
     {
         name: "least significant color in tile",
         func: makeTileSampledAlgo(function(colors) {
             return min(frequencies(colors, areSameColor), (a, b) => a[1] - b[1])[0];
-        })
+        }),
     },
     {
-        name: "most significant color in tile (tolerance: 0.5)",
-        func: makeTileSampledAlgo(function(colors) {
-            return max(frequencies(colors, areAlmostSameColor(0.5)), (a, b) => a[1] - b[1])[0];
-        })
+        name: "most significant color in tile with tolerance",
+        func: makeTileSampledAlgo(function(colors, {tolerance}) {
+            return max(frequencies(colors, areAlmostSameColor(tolerance)), (a, b) => a[1] - b[1])[0];
+        }),
+        params: {
+            tolerance: {
+                type: 'range',
+                min: 0,
+                max: 1,
+                initial: 0.5
+            },
+        },
     },
     {
-        name: "least significant color in tile (tolerance: 0.5)",
-        func: makeTileSampledAlgo(function(colors) {
-            return min(frequencies(colors, areAlmostSameColor(0.5)), (a, b) => a[1] - b[1])[0];
-        })
+        name: "least significant color in tile with tolerance",
+        func: makeTileSampledAlgo(function(colors, {tolerance}) {
+            return min(frequencies(colors, areAlmostSameColor(tolerance)), (a, b) => a[1] - b[1])[0];
+        }),
+        params: {
+            tolerance: {
+                type: 'range',
+                min: 0,
+                max: 1,
+                initial: 0.5
+            },
+        },
     },
     {
         name: "average color in tile",
-        func: makeTileSampledAlgo(averageOf)
+        func: makeTileSampledAlgo(averageOf),
     },
 ];
 
-function app({DOM}) {
+function inputModule({DOM}) {
     const file$ = DOM.select('#image-file-input').events('change')
         .map(ev => ev.target.files)
         .filter(files => files.length > 0)
         .map(files => files[0]);
-    const imgSrc$ = file$.map(file => URL.createObjectURL(file));
-    const image$ = DOM.select('#input').select('.preview').select('img').events('load').map(ev => ev.target).filter(isValidImage);
-    const outputResolution$ = DOM.select('#output-resolution').events('change').map(ev => parseInt(ev.target.value)).startWith(64);
-    const outputPixelSize$ = DOM.select('#output-pixel-size').events('change').map(ev => parseInt(ev.target.value)).startWith(4);
-    
-    const inputPreviewImageBackgroundColor$ = rxjs.Observable.combineLatest(...['red', 'green', 'blue', 'alpha'].map(
-        component => DOM
+
+    const image$ = DOM.select('#input .preview img').events('load')
+        .map(ev => ev.target)
+        .filter(isValidImage);
+
+    const previewBackgroundColor$ = rxjs.Observable.combineLatest(
+        ...['red', 'green', 'blue', 'alpha'].map(component => DOM
             .select(`#input .preview .background-color .color-component-${component} input`)
             .events('change')
             .map(ev => ev.target.value)
             .startWith(0)
-    ));
+        )
+    );
 
     return {
-        DOM: rxjs.Observable.combineLatest(
-            imgSrc$.startWith(null),
-            outputResolution$,
-            outputPixelSize$,
-            inputPreviewImageBackgroundColor$,
-            (imgSrc, outputResolution, outputPixelSize, inputPreviewImageBackgroundColor) => main([
-            section('#input', [
+        vdom$: rxjs.Observable.combineLatest(
+            file$.map(file => URL.createObjectURL(file)).startWith(null),
+            previewBackgroundColor$,
+        ).map(([imgSrc, previewBackgroundColor]) => section('#input', [
                 div('.file-input', [
                     label({attrs: {for: 'image-file-input'}}, "Input image: "),
                     input('#image-file-input', {attrs: {type: 'file', accept: 'image/*'}}),
@@ -191,30 +205,94 @@ function app({DOM}) {
                     canvas({attrs: {
                         width: 480,
                         height: 480,
-                        style: `background-color: ${makeRgbaString(...inputPreviewImageBackgroundColor)}`,
+                        style: `background-color: ${makeRgbaString(...previewBackgroundColor)}`,
                     }}),
                     div('.background-color', [
                         label('Background color:'),
-                        div('.color-component-input.color-component-red', [
-                            label('R'),
-                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[0]}})
-                        ]),
-                        div('.color-component-input.color-component-green', [
-                            label('G'),
-                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[1]}})
-                        ]),
-                        div('.color-component-input.color-component-blue', [
-                            label('B'),
-                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[2]}})
-                        ]),
-                        div('.color-component-input.color-component-alpha', [
-                            label('A'),
-                            input({attrs: {type: 'number', min: 0, max: 255, value: inputPreviewImageBackgroundColor[3]}})
-                        ]),
-                    ])
+                        ...['red', 'green', 'blue', 'alpha'].map((component, i) =>
+                            div(`.color-component-input.color-component-${component}`, [
+                                label(component[0].toUpperCase()),
+                                input({attrs: {type: 'number', min: 0, max: 255, value: previewBackgroundColor[i]}})
+                            ])
+                        ),
+                    ]),
                 ]),
             ]),
-            section('#output', [
+        ),
+        image$,
+        sideEffect$: image$.map(image => ({
+            func: (image) => {
+                const canvas = document.querySelector('#input .preview canvas');
+                const ctx = canvas.getContext('2d');
+                transferImageToCanvas(image, ctx);
+            },
+            args: [image],
+        })),
+    };
+}
+
+function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
+    const params = Object.entries(algo.params || {}).map(([key, param]) => {
+        const paramVal$ = DOM.select(`.algo[data-name="${algo.name}"] input[name="${key}"]`)
+            .events('change')
+            .map(ev => ev.target.value)
+            .map(val => {
+                switch (param.type) {
+                    case 'range':
+                        return parseFloat(val);
+                }
+            }).startWith(param.initial);
+        return {
+            key,
+            vdom$: paramVal$.map(paramVal => input({attrs: {name: key, type: param.type, step: '0.01', min: param.min, max: param.max, value: paramVal}})),
+            param$: paramVal$,
+        }
+    });
+    const params$ = params.length > 0
+        ? rxjs.Observable.combineLatest(...params.map(({param$}) => param$))
+            .map((ps) => ps.reduce((obj, val, idx) => Object.assign(obj, {[params[idx].key]: val}), {}))
+        : rxjs.Observable.of({});
+    return {
+        vdom$: (params.length > 0 ? rxjs.Observable.combineLatest(...params.map(({vdom$}) => vdom$)) : rxjs.Observable.of([]))
+            .map((paramVdoms) =>
+                div('.algo', {dataset: {name: algo.name}}, [
+                    canvas({attrs: {title: algo.name}}),
+                    ...paramVdoms,
+                ])        
+            ),
+        sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, params$)
+        .map(([image, resolution, pixelSize, params]) => ({
+            func: function (image, resolution, pixelSize) {
+                const canvasElement = document.querySelector(`canvas[title="${algo.name}"`);
+                const ctx = canvasElement.getContext('2d');
+    
+                transferImageToCanvas(image, ctx);
+                const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+                ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
+                console.log("running algo:", algo.name, params);
+                const colors = algo.func(imageData, resolution, params);
+                console.log("done.");
+                colors.forEach((row, v) => row.forEach((color, h) => {
+                    ctx.fillStyle = makeRgbaString(...color);
+                    ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
+                }));
+            },
+            args: [image, resolution, pixelSize],
+        })),
+    }
+}
+
+function outputModule({DOM, image$}) {
+    const outputResolution$ = DOM.select('#output-resolution').events('change').map(ev => parseInt(ev.target.value)).startWith(64);
+    const outputPixelSize$ = DOM.select('#output-pixel-size').events('change').map(ev => parseInt(ev.target.value)).startWith(4);
+
+    const algoModules = algorithms.map(
+        algo => algoModule(algo, {DOM: DOM.select('#output #algos'), image$, outputResolution$, outputPixelSize$})
+    );
+
+    return {
+        vdom$: rxjs.Observable.combineLatest(outputResolution$, outputPixelSize$, ...algoModules.map(({vdom$}) => vdom$))
+            .map(([outputResolution, outputPixelSize, ...algoVdoms]) => section('#output', [
                 div('.output-param', [
                     label({attrs: {for: 'output-resolution'}}, "Output resolution:"),
                     input('#output-resolution', {attrs: {type: 'number', required: true, min: 1, value: outputResolution}}),
@@ -223,39 +301,23 @@ function app({DOM}) {
                     label({attrs: {for: 'output-pixel-size'}}, "Output pixel size:"),
                     input('#output-pixel-size', {attrs: {type: 'number', required: true, min: 1, value: outputPixelSize}}),                    
                 ]),
-                section('#algos', algorithms.map(algo => 
-                    div('.algo', [
-                        canvas({attrs: {title: algo.name}}),
-                    ])
-                )),
-            ]),
-        ])),
-        sideEffect: rxjs.Observable.merge(
-            image$.map(image => ({
-                func: (image) => {
-                    const canvas = document.querySelector('#input .preview canvas');
-                    const ctx = canvas.getContext('2d');
-                    transferImageToCanvas(image, ctx);
-                },
-                args: [image],
-            })),
-            ...algorithms.map(algo => rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$)
-                .map(([image, resolution, pixelSize]) => {
-                    const canvasElement = document.querySelector(`canvas[title="${algo.name}"`);
-                    const ctx = canvasElement.getContext('2d');
-        
-                    transferImageToCanvas(image, ctx);
-                    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
-                    ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
-                    console.log("running algo:", algo.name);
-                    const colors = algo.func(imageData, resolution);
-                    colors.forEach((row, v) => row.forEach((color, h) => {
-                        ctx.fillStyle = makeRgbaString(...color);
-                        ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
-                    }));
-                })
-            ),
-        ),
+                section('#algos', algoVdoms),
+            ])),
+        sideEffect$: rxjs.Observable.merge(...algoModules.map(({sideEffect$}) => sideEffect$))
+    }    
+}
+
+function app({DOM}) {
+    const {vdom$: inputVdom$, image$, sideEffect$: inputSideEffect$} = inputModule({DOM});
+    const {vdom$: outputVdom$, sideEffect$: outputSideEffect$} = outputModule({DOM, image$});
+    
+    return {
+        DOM: rxjs.Observable.combineLatest(inputVdom$, outputVdom$)
+            .map(([inputVdom, outputVdom]) => main([
+                inputVdom,
+                outputVdom
+            ])),
+        sideEffect: rxjs.Observable.merge(inputSideEffect$, outputSideEffect$),
     };
 }
 
