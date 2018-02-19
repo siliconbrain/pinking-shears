@@ -231,53 +231,79 @@ function inputModule({DOM}) {
     };
 }
 
+function parseParamValue(type, value) {
+    switch (type) {
+        case 'range':
+            return parseFloat(value);
+        default:
+            throw new Error(`Unknown parameter type: ${type}`);
+    }
+}
+
+function renderAlgo(algo, image, resolution, pixelSize, paramValues) {
+    const canvas = document.querySelector(`canvas[title="${algo.name}"`);
+    const ctx = canvas.getContext('2d');
+
+    transferImageToCanvas(image, ctx);
+    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
+    console.log("running algo", algo.name, paramValues);
+    const colors = algo.func(imageData, resolution, paramValues);
+    console.log("done.");
+    colors.forEach((row, v) => row.forEach((color, h) => {
+        ctx.fillStyle = makeRgbaString(...color);
+        ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
+    }));
+}
+
 function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
-    const params = Object.entries(algo.params || {}).map(([key, param]) => {
-        const paramVal$ = DOM.select(`.algo[data-name="${algo.name}"] input[name="${key}"]`)
-            .events('change')
-            .map(ev => ev.target.value)
-            .map(val => {
-                switch (param.type) {
-                    case 'range':
-                        return parseFloat(val);
-                }
-            }).startWith(param.initial);
-        return {
-            key,
-            vdom$: paramVal$.map(paramVal => input({attrs: {name: key, type: param.type, step: '0.01', min: param.min, max: param.max, value: paramVal}})),
-            param$: paramVal$,
+    const parameters = Object.entries(algo.params || {}).map(
+        ([key, param]) => {
+            const value$ = DOM.select(`.algo[data-name="${algo.name}"] input[name="${key}"]`)
+                .events('change')
+                .map(ev => ev.target.value)
+                .map(value => parseParamValue(param.type, value))
+                .startWith(param.initial);
+            const vdom$ = value$.map(
+                value => input({
+                    attrs: {
+                        name: key,
+                        type: param.type,
+                        step: 0.01,
+                        min: param.min,
+                        max: param.max,
+                        value
+                    }
+                })
+            );
+            return {
+                key,
+                vdom$,
+                value$,
+            }
         }
-    });
-    const params$ = params.length > 0
-        ? rxjs.Observable.combineLatest(...params.map(({param$}) => param$))
-            .map((ps) => ps.reduce((obj, val, idx) => Object.assign(obj, {[params[idx].key]: val}), {}))
+    );
+
+    const paramVdom$s = parameters.map(({vdom$}) => vdom$);
+    const paramVdoms$ = parameters.length > 0 ? rxjs.Observable.combineLatest(...paramVdom$s) : rxjs.Observable.of([]);
+    const paramValue$s = parameters.map(({value$}) => value$);
+    const paramValues$ = parameters.length > 0
+        ? rxjs.Observable.combineLatest(...paramValue$s).map(
+            values => values.reduce((obj, val, idx) => Object.assign(obj, {[parameters[idx].key]: val}), {})
+        )
         : rxjs.Observable.of({});
     return {
-        vdom$: (params.length > 0 ? rxjs.Observable.combineLatest(...params.map(({vdom$}) => vdom$)) : rxjs.Observable.of([]))
-            .map((paramVdoms) =>
+        vdom$: paramVdoms$.map(
+            paramVdoms =>
                 div('.algo', {dataset: {name: algo.name}}, [
                     canvas({attrs: {title: algo.name}}),
                     ...paramVdoms,
-                ])        
-            ),
-        sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, params$)
-        .map(([image, resolution, pixelSize, params]) => ({
-            func: function (image, resolution, pixelSize) {
-                const canvasElement = document.querySelector(`canvas[title="${algo.name}"`);
-                const ctx = canvasElement.getContext('2d');
-    
-                transferImageToCanvas(image, ctx);
-                const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
-                ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
-                console.log("running algo:", algo.name, params);
-                const colors = algo.func(imageData, resolution, params);
-                console.log("done.");
-                colors.forEach((row, v) => row.forEach((color, h) => {
-                    ctx.fillStyle = makeRgbaString(...color);
-                    ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
-                }));
-            },
-            args: [image, resolution, pixelSize],
+                ])
+        ),
+        sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, paramValues$)
+        .map(([image, resolution, pixelSize, paramValues]) => ({
+            func: renderAlgo,
+            args: [algo, image, resolution, pixelSize, paramValues],
         })),
     }
 }
