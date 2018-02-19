@@ -1,4 +1,4 @@
-const {canvas, div, header, i, img, input, label, main, makeDOMDriver, section} = require('@cycle/dom');
+const {canvas, div, header, i, img, input, label, main, makeDOMDriver, section, span} = require('@cycle/dom');
 const {run} = require('@cycle/rxjs-run');
 const {adapt} = require('@cycle/run/lib/adapt');
 const rxjs = require('rxjs');
@@ -12,14 +12,14 @@ function isValidImage(imageElement) {
 function transferImageToCanvas(imageElement, canvasContext) {
     const imageWidth = imageElement.naturalWidth,
           imageHeight = imageElement.naturalHeight;
-    
+
     const size = Math.max(imageHeight, imageWidth);
     const canvas = canvasContext.canvas;
     canvas.width = canvas.height = size;
 
     const offsetX = (size - imageWidth) / 2;
     const offsetY = (size - imageHeight) / 2;
-    
+
     canvasContext.drawImage(imageElement, offsetX, offsetY);
 }
 
@@ -148,7 +148,7 @@ const algorithms = [
                 type: 'range',
                 min: 0,
                 max: 1,
-                initial: 0.5
+                initial: 0.5,
             },
         },
     },
@@ -162,7 +162,7 @@ const algorithms = [
                 type: 'range',
                 min: 0,
                 max: 1,
-                initial: 0.5
+                initial: 0.5,
             },
         },
     },
@@ -202,19 +202,23 @@ function inputModule({DOM}) {
                 ]),
                 div('.preview', [
                     img({attrs: {src: imgSrc || undefined}}),
-                    canvas({attrs: {
-                        width: 480,
-                        height: 480,
-                        style: `background-color: ${makeRgbaString(...previewBackgroundColor)}`,
-                    }}),
+                    div([
+                        canvas({attrs: {
+                            width: 480,
+                            height: 480,
+                            style: `background-color: ${makeRgbaString(...previewBackgroundColor)}`,
+                        }}),
+                    ]),
                     div('.background-color', [
-                        label('Background color:'),
-                        ...['red', 'green', 'blue', 'alpha'].map((component, i) =>
-                            div(`.color-component-input.color-component-${component}`, [
-                                label(component[0].toUpperCase()),
-                                input({attrs: {type: 'number', min: 0, max: 255, value: previewBackgroundColor[i]}})
-                            ])
-                        ),
+                        label('Background color'),
+                        div([
+                            ...['red', 'green', 'blue', 'alpha'].map((component, i) =>
+                                div(`.color-component-input.color-component-${component}`, [
+                                    label(component[0].toUpperCase()),
+                                    input({attrs: {type: 'number', min: 0, max: 255, value: previewBackgroundColor[i]}})
+                                ])
+                            ),
+                        ]),
                     ]),
                 ]),
             ]),
@@ -249,11 +253,11 @@ function renderAlgo(algo, image, resolution, pixelSize, paramValues) {
     ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
     console.log("running algo", algo.name, paramValues);
     const colors = algo.func(imageData, resolution, paramValues);
-    console.log("done.");
     colors.forEach((row, v) => row.forEach((color, h) => {
         ctx.fillStyle = makeRgbaString(...color);
         ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
     }));
+    console.log("done.");
 }
 
 function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
@@ -268,8 +272,8 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
                 .map(value => parseParamValue(param.type, value))
                 .startWith(param.initial);
             const vdom$ = value$.map(
-                value => label([
-                    key,
+                value => label('.parameter', {dataset: {'inputtype': param.type}}, [
+                    span(key),
                     input({
                         attrs: {
                             name: key,
@@ -301,22 +305,27 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
         vdom$: rxjs.Observable.combineLatest(active$, paramVdoms$).map(
             ([active, paramVdoms]) =>
                 div('.algo', {dataset: {name: algo.name, active}}, [
-                    label([
-                        i('.active.fa.fa-caret-' + (active ? 'down' : 'right')),
-                        header(algo.name),
-                        input({attrs: {type: 'checkbox', checked: active}}),
+                    div([
+                        header([
+                            label([
+                                i('.active.fa.fa-caret-' + (active ? 'down' : 'right')),
+                                span(algo.name),
+                                input({attrs: {type: 'checkbox', checked: active}}),
+                            ]),
+                        ]),
+                        canvas({attrs: {title: algo.name}}),
+                        div('.parameters', [
+                            ...paramVdoms,
+                        ]),
                     ]),
-                    canvas({attrs: {title: algo.name}}),
-                    div('.parameters', [
-                        ...paramVdoms,
-                    ])
                 ])
         ),
-        sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, paramValues$)
-        .map(([image, resolution, pixelSize, paramValues]) => ({
-            func: renderAlgo,
-            args: [algo, image, resolution, pixelSize, paramValues],
-        })),
+        sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, paramValues$, active$)
+            .filter(([image, resolution, pixelSize, paramValues, active]) => active)
+            .map(([image, resolution, pixelSize, paramValues, active]) => ({
+                func: renderAlgo,
+                args: [algo, image, resolution, pixelSize, paramValues],
+            })),
     }
 }
 
@@ -337,18 +346,18 @@ function outputModule({DOM, image$}) {
                 ]),
                 div('.output-param', [
                     label({attrs: {for: 'output-pixel-size'}}, "Output pixel size:"),
-                    input('#output-pixel-size', {attrs: {type: 'number', required: true, min: 1, value: outputPixelSize}}),                    
+                    input('#output-pixel-size', {attrs: {type: 'number', required: true, min: 1, value: outputPixelSize}}),
                 ]),
                 section('#algos', algoVdoms),
             ])),
         sideEffect$: rxjs.Observable.merge(...algoModules.map(({sideEffect$}) => sideEffect$))
-    }    
+    }
 }
 
 function app({DOM}) {
     const {vdom$: inputVdom$, image$, sideEffect$: inputSideEffect$} = inputModule({DOM});
     const {vdom$: outputVdom$, sideEffect$: outputSideEffect$} = outputModule({DOM, image$});
-    
+
     return {
         DOM: rxjs.Observable.combineLatest(inputVdom$, outputVdom$)
             .map(([inputVdom, outputVdom]) => main([

@@ -1,9 +1,11 @@
 const {makeStyleSheet} = require('fluent-style-sheets');
 
+const middleGray = 'rgb(119, 119, 119)';
+
 const styleSheet = makeStyleSheet()
 .i('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css')
 .r('html', {
-    'background-color': 'rgb(191,191,191)',
+    'background-color': middleGray,
     'font-family': 'sans-serif',
     'font-size': '11pt',
 })
@@ -20,9 +22,22 @@ const styleSheet = makeStyleSheet()
 })
 .n('#input', $ => $
     .r({
-        'display': 'inline-block',
+        'align-items': 'center',
+        'display': 'inline-flex',
+        'flex-direction': 'column',
+        'margin': '1em',
+    })
+    .r('.file-input', {
+        'background-color': '#999',
+        'border-radius': '3px',
+        'padding': '0.5em',
     })
     .n('.preview', $ => $
+        .r({
+            'align-items': 'center',
+            'display': 'flex',
+            'flex-direction': 'column',
+        })
         .r('img', {
             'display': 'none',
         })
@@ -32,10 +47,16 @@ const styleSheet = makeStyleSheet()
         })
         .n('.background-color', $ => $
             .r({
+                'align-items': 'center',
+                'background-color': '#999',
+                'border-radius': '3px',
+                'display': 'flex',
+                'flex-direction': 'column',
                 'margin': '0 0.5em',
+                'padding': '0.5em',
             })
             .r('label', {
-                'margin-right': '0.25em',
+                'margin': '0.25em',
             })
             .n('.color-component-input', $ => $
                 .r({
@@ -43,24 +64,44 @@ const styleSheet = makeStyleSheet()
                     'margin': '0 0.25em',
                 })
                 .r('input', {
-                    'text-align': 'right',
+                    'border': '1px solid #888',
+                    'padding': '0',
                     'width': '45px',
                 })
             )
+            .r('.color-component-red input', {
+                'background-color': 'rgba(255, 0, 0, 0.33)',
+            })
+            .r('.color-component-green input', {
+                'background-color': 'rgba(0, 255, 0, 0.33)',
+            })
+            .r('.color-component-blue input', {
+                'background-color': 'rgba(0, 0, 255, 0.33)',
+            })
+            .r('.color-component-alpha input', {
+                'background-color': 'rgba(0, 0, 0, 0.33)',
+            })
         )
     )
 )
 .n('#output', $ => $
     .r({
         'display': 'inline-block',
+        'margin': '1em',
         'max-width': '50vw',
     })
     .n('.output-param', $ => $
         .r({
+            'background-color': '#999',
+            'border-radius': '3px',
             'display': 'inline-block',
-            'margin': '0 0.5em',
+            'margin': '0.5em',
+            'margin-left': '0',
+            'padding': '0.5em',
         })
         .r('input', {
+            'margin': '0',
+            'margin-left': '0.5em',
             'width': '46px',
         })
     )
@@ -71,16 +112,55 @@ const styleSheet = makeStyleSheet()
         })
         .n('.algo', $ => $
             .r({
-                'border': '1px solid #888',
                 'display': 'inline-block',
+                'margin': '1px',
             })
-            .r('label', {
+            .r('> div', {
+                'align-items': 'stretch',
+                'background-color': '#aaa',
+                'border': '1px solid #888',
                 'display': 'flex',
-                'margin': '0.25em',
+                'flex-direction': 'column',
             })
-            .r('label input', {
-                'display': 'none',
+            .n('header', $ => $
+                .n('label', $ => $
+                    .r({
+                        'display': 'flex',
+                        'padding': '0.25em',
+                    })
+                    .r('i', {
+                        'margin': '0 0.25em',
+                    })
+                    .r('input', {
+                        'display': 'none',
+                    })
+                )
+            )
+            .r('canvas', {
+                'align-self': 'center',
+                'background-color': middleGray,
             })
+            .n('.parameters', $ => $
+                .r({
+                    'display': 'flex',
+                    'flex-wrap': 'wrap',
+                })
+                .n('.parameter[data-inputtype="range"]', $ => $
+                    .r({
+                        'align-items': 'center',
+                        'background-color': '#999',
+                        'border-radius': '5px',
+                        'display': 'flex',
+                        'flex-direction': 'column',
+                        'flex-grow': '1',
+                        'margin': '0.25em',
+                        'padding': '0.25em',
+                    })
+                    .r('span', {
+                        'margin': '0.25em',
+                    })
+                )
+            )
         )
         .n('.algo[data-active="false"]', $ => $
             .r('canvas', '.parameters', {
