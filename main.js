@@ -1,4 +1,4 @@
-const {canvas, div, header, img, input, label, main, makeDOMDriver, section} = require('@cycle/dom');
+const {canvas, div, header, i, img, input, label, main, makeDOMDriver, section} = require('@cycle/dom');
 const {run} = require('@cycle/rxjs-run');
 const {adapt} = require('@cycle/run/lib/adapt');
 const rxjs = require('rxjs');
@@ -257,24 +257,30 @@ function renderAlgo(algo, image, resolution, pixelSize, paramValues) {
 }
 
 function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
+    const algoDOM = DOM.select(`.algo[data-name="${algo.name}"]`);
+    const active$ = algoDOM.select('label input[type="checkbox"]').events('change')
+        .map(ev => ev.target.checked).startWith(false);
     const parameters = Object.entries(algo.params || {}).map(
         ([key, param]) => {
-            const value$ = DOM.select(`.algo[data-name="${algo.name}"] input[name="${key}"]`)
+            const value$ = algoDOM.select(`input[name="${key}"]`)
                 .events('change')
                 .map(ev => ev.target.value)
                 .map(value => parseParamValue(param.type, value))
                 .startWith(param.initial);
             const vdom$ = value$.map(
-                value => input({
-                    attrs: {
-                        name: key,
-                        type: param.type,
-                        step: 0.01,
-                        min: param.min,
-                        max: param.max,
-                        value
-                    }
-                })
+                value => label([
+                    key,
+                    input({
+                        attrs: {
+                            name: key,
+                            type: param.type,
+                            step: 0.01,
+                            min: param.min,
+                            max: param.max,
+                            value
+                        }
+                    }),
+                ])
             );
             return {
                 key,
@@ -283,7 +289,6 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
             }
         }
     );
-
     const paramVdom$s = parameters.map(({vdom$}) => vdom$);
     const paramVdoms$ = parameters.length > 0 ? rxjs.Observable.combineLatest(...paramVdom$s) : rxjs.Observable.of([]);
     const paramValue$s = parameters.map(({value$}) => value$);
@@ -293,11 +298,18 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
         )
         : rxjs.Observable.of({});
     return {
-        vdom$: paramVdoms$.map(
-            paramVdoms =>
-                div('.algo', {dataset: {name: algo.name}}, [
+        vdom$: rxjs.Observable.combineLatest(active$, paramVdoms$).map(
+            ([active, paramVdoms]) =>
+                div('.algo', {dataset: {name: algo.name, active}}, [
+                    label([
+                        i('.active.fa.fa-caret-' + (active ? 'down' : 'right')),
+                        header(algo.name),
+                        input({attrs: {type: 'checkbox', checked: active}}),
+                    ]),
                     canvas({attrs: {title: algo.name}}),
-                    ...paramVdoms,
+                    div('.parameters', [
+                        ...paramVdoms,
+                    ])
                 ])
         ),
         sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, paramValues$)
