@@ -191,6 +191,11 @@ function inputModule({DOM}) {
         )
     );
 
+    const canvas$ = DOM.select('#input .preview canvas').elements()
+        .filter(es => es.length > 0)
+        .map(es => es[0])
+        .distinctUntilChanged();
+
     return {
         vdom$: rxjs.Observable.combineLatest(
             file$.map(file => URL.createObjectURL(file)).startWith(null),
@@ -224,13 +229,12 @@ function inputModule({DOM}) {
             ]),
         ),
         image$,
-        sideEffect$: image$.map(image => ({
-            func: (image) => {
-                const canvas = document.querySelector('#input .preview canvas');
+        sideEffect$: rxjs.Observable.combineLatest(image$, canvas$).map(([image, canvas]) => ({
+            func: (image, canvas) => {
                 const ctx = canvas.getContext('2d');
                 transferImageToCanvas(image, ctx);
             },
-            args: [image],
+            args: [image, canvas],
         })),
     };
 }
@@ -244,10 +248,8 @@ function parseParamValue(type, value) {
     }
 }
 
-function renderAlgo(algo, image, resolution, pixelSize, paramValues) {
-    const canvas = document.querySelector(`canvas[title="${algo.name}"`);
+function renderAlgo(algo, canvas, image, resolution, pixelSize, paramValues) {
     const ctx = canvas.getContext('2d');
-
     transferImageToCanvas(image, ctx);
     const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
@@ -264,6 +266,11 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
     const algoDOM = DOM.select(`.algo[data-name="${algo.name}"]`);
     const active$ = algoDOM.select('label input[type="checkbox"]').events('change')
         .map(ev => ev.target.checked).startWith(false);
+    const canvas$ = algoDOM.select('canvas').elements()
+        .filter(es => es.length > 0)
+        .map(es => es[0])
+        .distinctUntilChanged();
+
     const parameters = Object.entries(algo.params || {}).map(
         ([key, param]) => {
             const value$ = algoDOM.select(`input[name="${key}"]`)
@@ -320,12 +327,16 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
                     ]),
                 ])
         ),
-        sideEffect$: rxjs.Observable.combineLatest(image$, outputResolution$, outputPixelSize$, paramValues$, active$)
-            .filter(([image, resolution, pixelSize, paramValues, active]) => active)
-            .map(([image, resolution, pixelSize, paramValues, active]) => ({
+        sideEffect$: rxjs.Observable.combineLatest(
+            canvas$, image$, outputResolution$, outputPixelSize$, paramValues$, active$
+        ).filter(
+            ([canvas, image, resolution, pixelSize, paramValues, active]) => active
+        ).map(
+            ([canvas, image, resolution, pixelSize, paramValues, active]) => ({
                 func: renderAlgo,
-                args: [algo, image, resolution, pixelSize, paramValues],
-            })),
+                args: [algo, canvas, image, resolution, pixelSize, paramValues],
+            })
+        ),
     }
 }
 
