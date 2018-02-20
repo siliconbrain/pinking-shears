@@ -3,7 +3,7 @@ const {run} = require('@cycle/rxjs-run');
 const {adapt} = require('@cycle/run/lib/adapt');
 const rxjs = require('rxjs');
 
-const L = require('./lazy');
+const L = require('./lib/lazy');
 
 function isValidImage(imageElement) {
     return imageElement.naturalWidth !== 0 && imageElement.naturalHeight !== 0;
