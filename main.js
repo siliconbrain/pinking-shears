@@ -191,10 +191,7 @@ function inputModule({DOM}) {
         )
     );
 
-    const canvas$ = DOM.select('#input .preview canvas').elements()
-        .filter(es => es.length > 0)
-        .map(es => es[0])
-        .distinctUntilChanged();
+    const canvas$ = DOM.select('#input .preview canvas').element().distinctUntilChanged();
 
     return {
         vdom$: rxjs.Observable.combineLatest(
@@ -266,10 +263,7 @@ function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
     const algoDOM = DOM.select(`.algo[data-name="${algo.name}"]`);
     const active$ = algoDOM.select('label input[type="checkbox"]').events('change')
         .map(ev => ev.target.checked).startWith(false);
-    const canvas$ = algoDOM.select('canvas').elements()
-        .filter(es => es.length > 0)
-        .map(es => es[0])
-        .distinctUntilChanged();
+    const canvas$ = algoDOM.select('canvas').element().distinctUntilChanged();
 
     const parameters = Object.entries(algo.params || {}).map(
         ([key, param]) => {
