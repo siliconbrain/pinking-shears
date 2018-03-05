@@ -27,11 +27,22 @@ const styleSheet = makeStyleSheet()
         'flex-direction': 'column',
         'margin': '1em',
     })
-    .r('.file-input', {
-        'background-color': '#999',
-        'border-radius': '3px',
-        'padding': '0.5em',
-    })
+    .n('.file-input', $ => $
+        .r({
+            'background-color': '#999',
+            'border-radius': '3px',
+            'padding': '0.5em',
+        })
+        .r('label span', {
+            'margin': '0 0.25em',
+        })
+        .r('label span::after', {
+            'content': '":"'
+        })
+        .r('label input', {
+            'margin': '0 0.25em',
+        })
+    )
     .n('.preview', $ => $
         .r({
             'align-items': 'center',
@@ -55,32 +66,41 @@ const styleSheet = makeStyleSheet()
                 'margin': '0 0.5em',
                 'padding': '0.5em',
             })
-            .r('label', {
+            .r('> label', {
                 'margin': '0.25em',
             })
-            .n('.color-component-input', $ => $
+            .n('.channels', $ => $
                 .r({
-                    'display': 'inline-block',
-                    'margin': '0 0.25em',
+                    'display': 'flex',
                 })
-                .r('input', {
-                    'border': '1px solid #888',
-                    'padding': '0',
-                    'width': '45px',
+                .n('.channel', $ => $
+                    .r({
+                        'margin': '0.25em',
+                    })
+                    .r('label span::after', {
+                        'content': '":"',
+                    })
+                    .r('label input', {
+                        'border': '1px solid #888',
+                        'margin': '0.25em',
+                        'padding': '0',
+                        'padding-left': '1px',
+                        'width': '45px',
+                    })
+                )
+                .r('.channel[data-channel="red"] input', {
+                    'background-color': 'rgba(255, 0, 0, 0.33)',
+                })
+                .r('.channel[data-channel="green"] input', {
+                    'background-color': 'rgba(0, 255, 0, 0.33)',
+                })
+                .r('.channel[data-channel="blue"] input', {
+                    'background-color': 'rgba(0, 0, 255, 0.33)',
+                })
+                .r('.channel[data-channel="alpha"] input', {
+                    'background-color': 'rgba(0, 0, 0, 0.33)',
                 })
             )
-            .r('.color-component-red input', {
-                'background-color': 'rgba(255, 0, 0, 0.33)',
-            })
-            .r('.color-component-green input', {
-                'background-color': 'rgba(0, 255, 0, 0.33)',
-            })
-            .r('.color-component-blue input', {
-                'background-color': 'rgba(0, 0, 255, 0.33)',
-            })
-            .r('.color-component-alpha input', {
-                'background-color': 'rgba(0, 0, 0, 0.33)',
-            })
         )
     )
 )
@@ -158,6 +178,28 @@ const styleSheet = makeStyleSheet()
                     })
                     .r('span', {
                         'margin': '0.25em',
+                    })
+                )
+                .n('.parameter[data-inputtype="number"]', $ => $
+                    .r({
+                        'align-items': 'center',
+                        'background-color': '#999',
+                        'border-radius': '5px',
+                        'display': 'flex',
+                        'flex-grow': '1',
+                        'justify-content': 'center',
+                        'margin': '0.25em',
+                        'padding': '0.25em',
+                    })
+                    .r('span', {
+                        'margin': '0.25em',
+                    })
+                    .r('span::after', {
+                        'content': '":"',
+                    })
+                    .r('input', {
+                        'margin': '0.25em',
+                        'width': '46px',
                     })
                 )
             )
