@@ -1,6 +1,7 @@
 const {makeStyleSheet} = require('fluent-style-sheets');
 
 const middleGray = 'rgb(119, 119, 119)';
+const selectedColor = 'orange';
 
 const styleSheet = makeStyleSheet()
 .i('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css')
@@ -9,48 +10,96 @@ const styleSheet = makeStyleSheet()
     'font-family': 'sans-serif',
     'font-size': '11pt',
 })
-.n('#workspace', $ => $
+.r('body', {
+    'margin': '0',
+})
+.r('main', $ => $
     .r({
-        'position': 'relative',
+        'display': 'flex',
+        'height': '100%',
+        'width': '100%',
     })
-    .n('.block', $ => $
+    .r('#toolbar', $ => $
         .r({
-            'background-color': '#666',
-            'border': '1px solid #eee',
-            'border-radius': '5px',
-            'cursor': 'pointer',
-            'display': 'inline-block',
-            'margin': '10px',
-            'max-width': '200px',
-            'padding': '5px',
-            'position': 'absolute',
+            'background-color': '#eee',
         })
-        .r('header', {
-            'border-bottom': '1px solid #999',
-            'text-align': 'center',
-        })
-        .n('.slots', $ => $
+        .r('.blueprint', $ => $
             .r({
-                'display': 'flex',
-                'flex-wrap': 'wrap',
-            })
-            .r('.inputs', '.outputs', {
-                'display': 'flex',
-                'flex-direction': 'column',
-                'flex-grow': '1',
-            })
-            .r('.inputs', {
-                'border-right': '1px solid #999',
+                'margin': '5px 10px',
             })
         )
     )
-    .r('.block:hover', {
-        'border-color': '#ff0',
-    })
-    .r('.block.selected', {
-        'border-color': '#fa0',
-        'border-width': '2px',
-    })
+    .r('#workspace', $ => $
+        .r({
+            'flex-grow': '1',
+            'margin': '5px',
+        })
+        .r('.constellation', {
+            'height': '100%',
+            'width': '100%',
+        })
+        .r('.block', $ => $
+            .r('> .back', {
+                'fill': 'rgba(127, 127, 127, 0.75)',
+                'rx': '2',
+            })
+            .r('.header', $ => $
+                .r('rect', {
+                    'fill': '#58f',
+                })
+                .r('text', {
+                    'user-select': 'none',
+                })
+            )
+            .s('.selected .header rect', {
+                'stroke': '#fff',
+            })
+            .r('.slots', $ => $
+                .r({
+                    'user-select': 'none',
+                })
+                .r('.junction', {
+                    'fill': 'transparent',
+                    'stroke-width': '3',
+                })
+                .r('.input .junction', $ => $
+                    .r({
+                        'stroke': '#bf0',
+                    })
+                    .s(':hover', {
+                        'fill': '#bf0',
+                    })
+                )
+                .r('.output .junction', $ => $
+                    .r({
+                        'stroke': '#ec0',
+                    })
+                    .s(':hover', {
+                        'fill': '#ec0',
+                    })
+                )
+            )
+        )
+        .r('.pending-connection', {
+            'fill': 'none',
+            'stroke': selectedColor,
+            'stroke-width': '2px',
+        })
+        .r('.connection', $ => $
+            .r({
+                'fill': 'none',
+                'stroke': '#666',
+                'stroke-width': '2px',
+            })
+            .s(':hover', {
+                'stroke': 'yellow',
+            })
+            .s('.selected', {
+                'stroke': selectedColor,
+                'stroke-width': '2px',
+            })
+        )
+    )
 );
 
 module.exports = {

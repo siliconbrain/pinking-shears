@@ -28,7 +28,7 @@
     "@cycle/dom": "^20.2.0",
     "@cycle/isolate": "^3.2.0",
     "@cycle/rxjs-run": "^8.0.0",
-    "fluent-style-sheets": "^1.0.1",
+    "fluent-style-sheets": "^2.0.1",
     "rxjs": "^5.5.6"
   }
 }

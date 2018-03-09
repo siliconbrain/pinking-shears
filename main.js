@@ -1,4 +1,4 @@
-const {div, header, input, main, makeDOMDriver, section, svg} = require('@cycle/dom');
+const {div, main, makeDOMDriver, svg} = require('@cycle/dom');
 const {run} = require('@cycle/rxjs-run');
 const {adapt} = require('@cycle/run/lib/adapt');
 const rxjs = require('rxjs');
@@ -7,154 +7,146 @@ const A = require('./lib/array');
 const C = require('./lib/color');
 const components = require('./lib/components');
 const F = require('./lib/functional');
+const {Point} = require('./lib/geometry');
 const I = require('./lib/interactive');
 const invariant = require('./lib/invariant');
 const model = require('./lib/model');
-
-function log(value) { console.log(value); }
+const rx = require('./lib/reactive');
+const {log} = require('./lib/util');
+const V = require('./lib/vector');
+const vm = require('./lib/viewmodel');
 
 const blueprints = [
     model.BlockBlueprint({
-        name: "Image file",
-        description: "Select an image file",
+        id: 'scalar-constant',
+        name: "Scalar constant",
+        description: "This block lets you specify a scalar constant",
         outputs: [
             model.Output({
-                name: "image",
+                id: 'value',
+                name: "value",
             }),
         ],
         properties: [
             model.Property({
+                id: 'value',
+                name: "value",
+            }),
+        ],
+    }),
+    model.BlockBlueprint({
+        id: 'image-file',
+        name: "Image file",
+        description: "This block lets you select an image file",
+        outputs: [
+            model.Output({
+                id: 'image-data',
+                name: "image data",
+            }),
+        ],
+        properties: [
+            model.Property({
+                id: 'file',
                 name: "file",
             })
         ],
     }),
     model.BlockBlueprint({
+        id: 'canvas',
         name: "Canvas",
-        description: "Canvas to display image data on",
+        description: "A canvas to display image data on",
         inputs: [
             model.Input({
+                id: 'image-data',
                 name: "image data",
             }),
         ],
-    })
+    }),
+    model.BlockBlueprint({
+        id: 'scalar-add',
+        name: "Scalar addition",
+        description: "This block lets you add two scalar values together",
+        inputs: [
+            model.Input({
+                id: 'lhs',
+                name: "left-hand side",
+            }),
+            model.Input({
+                id: 'rhs',
+                name: "right-hand side",
+            }),
+        ],
+        outputs: [
+            model.Output({
+                id: 'result',
+                name: "result",
+            }),
+        ],
+    }),
 ];
 
-const imageFileBlock = model.Block({blueprint: blueprints[0]});
-const canvasBlock = model.Block({blueprint: blueprints[1]});
-
-const constellation = model.Constellation({
-    blocks: [
-        imageFileBlock,
-        canvasBlock,
-    ],
-    connections: [
-        model.Connection({
-            source: model.Junction({block: imageFileBlock, slot: 0}),
-            destination: model.Junction({block: canvasBlock, slot: 0}),
-        }),
-    ],
-});
-
-function InputComponent({domSource, input}) {
-    return {
-        vdom$: rxjs.Observable.of(input.name),
-    };
-}
-
-function OutputComponent({domSource, output}) {
-    return {
-        vdom$: rxjs.Observable.of(output.name),
-    };
-}
-
-function BlockComponent({domSource, block}) {
-    const blockDomSource = domSource.select(`.block[name="${block.blueprint.name}"]`);
-    const inputsDomSource = blockDomSource.select('.inputs');
-    const outputsDomSource = blockDomSource.select('.outputs');
-    const inputs = block.blueprint.inputs.map(input => InputComponent({domSource: inputsDomSource, input}));
-    const outputs = block.blueprint.outputs.map(output => OutputComponent({domSource: outputsDomSource, output}));
-    const selected$ = blockDomSource.element()
-        .map(element => element.classList.contains('selected'))
-        .distinctUntilChanged();
-    const dragging$ = rxjs.Observable.merge(
-        blockDomSource.events('mousedown').map(ev => ev.preventDefault() || true),
-        blockDomSource.events('mouseup').map(() => false),
-        blockDomSource.events('mouseleave').map(() => false),
-    ).startWith(false);
-    const movement$ = blockDomSource.events('mousemove')
-        .map(ev => ({x: ev.movementX, y: ev.movementY}));
-    const draggingMovement$ = rxjs.Observable.combineLatest(selected$, dragging$, movement$)
-        .filter(([selected, dragging]) => selected && dragging)
-        .map(([_selected, _dragging, movement]) => movement);
-    const position$ = draggingMovement$.scan(
-        (currentPosition, translation) => ({
-            x: currentPosition.x + translation.x,
-            y: currentPosition.y + translation.y,
-        }), {x: 0, y: 0}).startWith({x: 0, y: 0});
-
-    blockDomSource.events('click').map(ev => (ev.stopPropagation(), document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected')), ev.ownerTarget.classList.add('selected'))).subscribe();
-
-    return {
-        vdom$: rxjs.Observable.combineLatest(
-            position$,
-            inputs.length > 0 ? rxjs.Observable.combineLatest(inputs.map(({vdom$}) => vdom$)) : rxjs.Observable.of([]),
-            outputs.length > 0 ? rxjs.Observable.combineLatest(outputs.map(({vdom$}) => vdom$)) : rxjs.Observable.of([]),
-        ).map(([position, inputVDoms, outputVDoms]) => div('.block', {
-            attrs: {
-                name: block.blueprint.name,
-                style: position && `left: ${position.x}; top: ${position.y};`,
-            },
-        }, [
-            header([block.blueprint.name]),
-            div('.slots', [
-                section('.inputs', inputVDoms),
-                section('.outputs', outputVDoms),
-            ]),
-        ])),
-    };
-}
-
-function ConnectionComponent({domSource, connection}) {
-    return {
-        vdom$: rxjs.Observable.of(div()),
-    };
-}
-
-function ConstellationComponent({domSource, constellation}) {
-    const constellationDomSource = domSource.select('.constellation');
-    const blocks = constellation.blocks.map(block => BlockComponent({
-        domSource: constellationDomSource,
-        block,
-    }));
-    const connections = constellation.connections.map(connection => ConnectionComponent({
-        domSource: constellationDomSource,
-        connection,
-    }));
-    return {
-        vdom$: rxjs.Observable.combineLatest(
-            rxjs.Observable.combineLatest(...blocks.map(({vdom$}) => vdom$)),
-            rxjs.Observable.combineLatest(...connections.map(({vdom$}) => vdom$)),
-        ).map(([blockVDoms, connectionVDoms]) => div('.constellation', [
-                ...blockVDoms,
-                ...connectionVDoms,
-            ])),
-    };
-}
+const constellation = model.Constellation({});
 
 function app({DOM}) {
-    const constellationComponent = ConstellationComponent({domSource: DOM.select('#workspace'), constellation});
-    DOM.select('document').events('click').do(() => document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'))).subscribe();
+    const constellationView = vm.ConstellationView({
+        parentDomSource: DOM.select('#workspace'),
+        constellation,
+        blueprints
+    });
+    function onBlueprintDragStart(blueprintId, ev) {
+        ev.dataTransfer.setData('application/prs.pinking-shears.blueprint-id+text', blueprintId);
+        ev.dataTransfer.dropEffect = "copy";
+    }
     return {
-        DOM: constellationComponent.vdom$.map(constellationVDom => main('#workspace', [constellationVDom])),
-        sideEffect: rxjs.Observable.empty(),
+        DOM: constellationView.vnode$.map(constellationVNode => main([
+            div('#toolbar', [
+                div('#blueprints', [
+                    ...blueprints.map(blueprint => div('.blueprint', {
+                        attrs: {
+                            'draggable': 'true',
+                            'title': blueprint.description,
+                        },
+                        on: {
+                            'dragstart': [onBlueprintDragStart, blueprint.id],
+                        }
+                    }, [
+                        blueprint.name
+                    ])),
+                ])
+            ]),
+            div('#workspace', [constellationVNode]),
+            div('#details'),
+        ])),
+        selector: rxjs.Observable.merge(
+            DOM.select('#workspace').events('click').map(() => null),
+            constellationView.selector$,
+        ),
     };
+}
+
+function domElementSelectorDriver(tag = 'selected') {
+    return (selector$) => {
+        adapt(selector$).subscribe(selector => {
+            document.querySelectorAll(`.${tag}`).forEach(element => { element.classList.remove(tag); });
+            document.querySelectorAll(selector).forEach(element => { element.classList.add(tag); });
+        });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('head').appendChild(require('./style').createStyleElement());
 
     run(app, {
-        DOM: makeDOMDriver('body'),
-        sideEffect: funcAndArgs$ => { adapt(funcAndArgs$).subscribe(({func, args}) => func(...args)); }
+        DOM: makeDOMDriver('body', {
+            modules: [
+                require('snabbdom/modules/attributes').default,
+                require('snabbdom/modules/class').default,
+                require('snabbdom/modules/dataset').default,
+                require('snabbdom/modules/eventlisteners').default,
+                require('snabbdom/modules/props').default,
+            ]
+        }),
+        selector: domElementSelectorDriver(),
+        dragger: domElementSelectorDriver('dragged'),
     });
 });
