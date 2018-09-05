@@ -1,383 +1,405 @@
-const {canvas, div, header, i, img, input, label, main, makeDOMDriver, section, span} = require('@cycle/dom');
-const {run} = require('@cycle/rxjs-run');
-const {adapt} = require('@cycle/run/lib/adapt');
 const rxjs = require('rxjs');
+const {BehaviorSubject, combineLatest, from, fromEvent, Observable, Subject} = rxjs;
+const rxjs_operators = require('rxjs/operators');
+const {filter, skip, startWith, switchMap, map, tap} = rxjs_operators;
 
-const L = require('./lib/lazy');
+const C = require('./lib/color');
+const ix = require('./lib/ix');
+const V = require('./lib/vector');
+
+function fromMutation(target, options) {
+    return new Observable(observer => {
+        const mutationObserver = new MutationObserver(
+            mutations => mutations.forEach(mutation => observer.next(mutation))
+        );
+        mutationObserver.observe(target, options);
+        return () => mutationObserver.disconnect();
+    });
+}
+
+function createElement(tag) {
+    return ({attrs = {}, on = {}} = {}) => {
+        const elem = document.createElement(tag);
+        Object.entries(attrs).forEach(([attr, value]) => {
+            if (value !== undefined) elem[attr] = value;
+        });
+        Object.entries(on).forEach(([event, listener]) => { elem.addEventListener(event, listener); });
+        return elem;
+    }
+}
+
+const dom = [
+    'canvas',
+    'div',
+    'img',
+    'input',
+].reduce((obj, tag) => { obj[tag] = createElement(tag); return obj; }, {});
+
+function createInputImage() {
+    const inputElement = dom.input({
+        attrs: {
+            accept: 'image/*',
+            type: 'file',
+        },
+    });
+    const subject = new BehaviorSubject(undefined);
+    fromEvent(inputElement, 'change').pipe(
+        map(ev => ev.target.files),
+        filter(files => files.length > 0),
+        map(files => files[0]),
+        map(file => URL.createObjectURL(file)),
+        switchMap(fileUrl => from(new Promise((resolve, reject) => {
+            dom.img({
+                attrs: {
+                    src: fileUrl,
+                },
+                on: {
+                    load: ev => resolve(ev.target),
+                }
+            });
+        }))),
+        filter(isValidImage),
+        map(getImageData),
+    ).subscribe(subject);
+    return {
+        element: inputElement,
+        sinks: {},
+        sources: {
+            imageData$: subject,
+        },
+    };
+}
+
+function createImageDataView() {
+    const canvasElement = dom.canvas({
+        attrs: {
+            'style': 'image-rendering: pixelated;',
+        },
+    });
+    const mutation$ = fromMutation(canvasElement, {attributes: true});
+    const canvasWidth$ = mutation$.pipe(
+        filter(mutation => mutation.attributeName === 'width'),
+        map(mutation => mutation.target[mutation.attributeName]),
+        startWith(canvasElement.width),
+    );
+    const canvasHeight$ = mutation$.pipe(
+        filter(mutation => mutation.attributeName === 'height'),
+        map(mutation => mutation.target[mutation.attributeName]),
+        startWith(canvasElement.height),
+    );
+    const pixelSizeSubject = new BehaviorSubject(1);
+
+    combineLatest(canvasWidth$, canvasHeight$, pixelSizeSubject).subscribe(
+        ([canvasWidth, canvasHeight, pixelSize]) => {
+            canvasElement.style.width = canvasWidth * pixelSize;
+            canvasElement.style.height = canvasHeight * pixelSize;
+        }
+    );
+
+    const imageDataSubject = new BehaviorSubject(
+        canvasElement.getContext('2d').getImageData(0, 0, canvasElement.width, canvasElement.height)
+    );
+
+    imageDataSubject.pipe(
+        skip(1),
+    ).subscribe(imageData => {
+        canvasElement.width = imageData.width;
+        canvasElement.height = imageData.height;
+        const ctx = canvasElement.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+    });
+
+    return {
+        element: canvasElement,
+        sinks: {
+            imageDataObs: imageDataSubject,
+            pixelSizeObs: pixelSizeSubject,
+        },
+        sources: {
+            imageData$: imageDataSubject,
+        },
+    }
+}
+
+function createIntegerControl({initialValue = 0, max = undefined, min = 0, step = 1} = {}) {
+    const inputElement = dom.input({
+        attrs: {
+            max: max,
+            min: min,
+            required: true,
+            step: step,
+            type: 'number',
+            value: initialValue,
+        },
+    });
+    const subject = new BehaviorSubject(parseInt(inputElement.value));
+    fromEvent(inputElement, 'change').pipe(
+        map(ev => parseInt(ev.target.value)),
+    ).subscribe(subject);
+    return {
+        element: inputElement,
+        sinks: {},
+        sources: {
+            value$: subject,
+        },
+    }
+}
+
+const LexicographicOrder = {
+    offsetOf: (...strides) => (...indices) => ix.pipe(
+        ix.ops.lazy.zip(indices, strides.concat([1])),
+        ix.ops.fold(0)((offset, [index, stride]) => (offset + index) * stride),
+    ),
+    indicesOf: (...strides) => (offset) => strides.reduceRight(({indices, offset}, stride) => ({
+        indices: [offset % stride].concat(indices),
+        offset: Math.floor(offset / stride)
+    }), {indices: [], offset}).indices,
+};
+
+function pixelAt(imageData, offset) {
+    const bytesPerPixel = C.COMPONENTS.length;
+
+    if (offset < 0 || (offset + 1) * bytesPerPixel > imageData.data.byteLength) return;
+
+    return imageData.data.subarray((offset + 0) * bytesPerPixel, (offset + 1) * bytesPerPixel);
+}
+
+function pixelAtCoords(imageData, x, y) {
+    if (x < 0 || imageData.width <= x || y < 0 || imageData.height <= y) return;
+
+    return pixelAt(imageData, LexicographicOrder.offsetOf(imageData.width)(y, x));
+}
+
+function pixelsIn(imageData, area = undefined) {
+    const offsets = area === undefined ? ix.ops.lazy.range(0, imageData.height * imageData.width) : ix.pipe(
+        ix.ops.lazy.product(
+            ix.ops.lazy.range(area.top, Math.min(imageData.height, area.top + area.height)),
+            ix.ops.lazy.range(area.left, Math.min(imageData.width, area.left + area.width)),
+        ),
+        ix.ops.lazy.map(([rowIdx, colIdx]) => LexicographicOrder.offsetOf(imageData.width)(rowIdx, colIdx)),
+    );
+    return ix.pipe(
+        offsets,
+        ix.ops.lazy.map(offset => pixelAt(imageData, offset)),
+    );
+}
+
+function asUint32Array(typedArray) {
+    return new Uint32Array(typedArray.buffer, typedArray.byteOffset, Math.trunc(typedArray.byteLength / 4));
+}
 
 function isValidImage(imageElement) {
     return imageElement.naturalWidth !== 0 && imageElement.naturalHeight !== 0;
 }
 
-function transferImageToCanvas(imageElement, canvasContext) {
-    const imageWidth = imageElement.naturalWidth,
-          imageHeight = imageElement.naturalHeight;
-
-    const size = Math.max(imageHeight, imageWidth);
-    const canvas = canvasContext.canvas;
-    canvas.width = canvas.height = size;
-
-    const offsetX = (size - imageWidth) / 2;
-    const offsetY = (size - imageHeight) / 2;
-
-    canvasContext.drawImage(imageElement, offsetX, offsetY);
-}
-
-function makeRgbaString(r = 0, g = 0, b = 0, a = 255) {
-    return `rgba(${r},${g},${b},${a / 255})`;
+function getImageData(imageElement) {
+    const canvas = dom.canvas({
+        attrs: {
+            width: imageElement.naturalWidth,
+            height: imageElement.naturalHeight,
+        }
+    });
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
 function makeArea(left, top, width, height) {
     return {left, top, width, height};
 }
 
-function colorsIn(imageData, area) {
-    const rows = L.range(area.top, Math.min(imageData.height, area.top + area.height));
-    const cols = L.range(area.left, Math.min(imageData.width, area.left + area.width));
-    return rows.flatMap(rowIdx => cols.map(colIdx => (rowIdx * imageData.width) + colIdx))
-        .map(offset => imageData.data.slice((offset + 0) * 4, (offset + 1) * 4));
-}
+function strictEquality(lhs, rhs) { return lhs === rhs; }
+function looseEquality(lhs, rhs) { return lhs == rhs; }
 
-function sampleRectangleSize(imageData, resolution) {
-    console.assert(imageData.width === imageData.height, "canvas is not square");
-    return {
-        width: Math.ceil(imageData.width / resolution),
-        height: Math.ceil(imageData.height / resolution)
-    };
-}
+function identity(value) { return value; }
 
-function makeTileSampledAlgo(coreFn) {
-    return function(imageData, resolution, params) {
-        const sampleRect = sampleRectangleSize(imageData, resolution);
-        const rows = L.range(0, resolution);
-        const cols = L.range(0, resolution);
-        return rows.map(rowIdx => cols.flatMap(colIdx => {
-            const sampleArea = makeArea(colIdx * sampleRect.width, rowIdx * sampleRect.height, sampleRect.width, sampleRect.height);
-            const colors = colorsIn(imageData, sampleArea);
-            if (L.isEmpty(colors)) return [];
-            else {
-            const color = coreFn(colors, params);
-                return [color];
-            }
-        }));
-    };
-}
-
-function frequencies(values, equality) {
-    equality = equality || function(a, b) { return a === b; };
-
-    const frequencies = [];
+function frequencies(values, keySelector = identity) {
+    const frequencies = new Map();
     for (const value of values) {
-        const idx = frequencies.findIndex(([val, cnt]) => equality(val, value));
-        if (idx < 0) {
-            frequencies.push([value, 0]);
-        } else {
-            frequencies[idx][1] += 1;
+        const key = keySelector(value);
+        const item = frequencies.get(key) || {value, count: 0};
+        item.count += 1;
+        frequencies.set(key, item);
+    }
+    return Array.from(frequencies.values());
+}
+
+function gaussianBlur(imageData, kernelRadius) {
+    const canvas = dom.canvas({
+        attrs: {
+            width: imageData.width,
+            height: imageData.height,
+        },
+    });
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(imageData, 0, 0);
+    ctx.filter = `blur(${kernelRadius}px)`;
+    ctx.drawImage(canvas, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function pixelsToImage(pixels, width, height) {
+    const result = new ImageData(width, height);
+    ix.pipe(
+        pixels,
+        ix.ops.lazy.take(width * height),
+        ix.ops.lazy.flatten,
+        ix.ops.forEach((val, i) => { result.data[i] = val; }),
+    );
+    return result;
+}
+
+function makePalette(pixels, threshold) {
+    const areClose = C.areClose(threshold);
+    var rest = frequencies(pixels, C.asUint32).sort(({count: lhs}, {count: rhs}) => rhs - lhs);
+    const groups = [];
+    while (rest.length > 1) {
+        const parts = ix.ops.strict.partition(({value}, i, weightedColors) => areClose(value, weightedColors[0].value))(rest);
+        groups.push(parts[0]);
+        rest = parts[1];
+    }
+    if (rest.length > 0) groups.push(rest);
+    return groups.map(weightedColors => C.averageOfWeighted(weightedColors.map(({value, count}) => ({color: value, weight: count}))));
+}
+
+function closest(distanceFunc) {
+    return (values) => {
+        var rdist = Infinity;
+        var result = undefined;
+        for (const value of values) {
+            const vdist = distanceFunc(value);
+            if (vdist < rdist) {
+                rdist = vdist;
+                result = value;
+            }
         }
-    }
-    return frequencies;
-}
-
-function areSameColor(colorA, colorB) {
-    return colorA.every((v, i) => v === colorB[i]);
-}
-
-function length(arr) {
-    return Math.sqrt(arr.map(v => v * v).reduce((acc, val) => acc + val));
-}
-
-function colorDistance(colorA, colorB) {
-    const diff = colorA.map((v, i) => v - colorB[i]);
-    return length(diff) / 510;
-}
-
-function areAlmostSameColor(tolerance) {
-    return function(colorA, colorB) {
-        return colorDistance(colorA, colorB) <= tolerance;
+        return result;
     }
 }
 
-function numberCompareFunction(a, b) { return a - b; }
-
-function max(iterable, compareFunction = numberCompareFunction) {
-    return L.reduce(iterable, (res, val) => compareFunction(res, val) < 0 ? val : res);
+function downsample(sourceImageData, targetWidth, targetHeight) {
+    const vstep = sourceImageData.height / targetHeight;
+    const hstep = sourceImageData.width / targetWidth;
+    const rows = ix.ops.lazy.range(0, targetHeight);
+    const cols = ix.ops.lazy.range(0, targetWidth);
+    const targetPixels = ix.pipe(
+        rows,
+        ix.ops.lazy.flatMap(rowidx => ix.pipe(
+            cols,
+            ix.ops.lazy.map(colidx => makeArea(Math.floor(colidx * hstep), Math.floor(rowidx * vstep), Math.ceil(hstep), Math.ceil(vstep))),
+        )),
+        ix.ops.lazy.map(area => pixelsIn(sourceImageData, area)),
+        ix.ops.lazy.map(C.averageOf),
+    );
+    return pixelsToImage(targetPixels, targetWidth, targetHeight);
 }
 
-function min(iterable, compareFunction = numberCompareFunction) {
-    return L.reduce(iterable, (res, val) => compareFunction(res, val) > 0 ? val : res);
+function cloneImageData(imageData) {
+    const result = new ImageData(imageData.width, imageData.height);
+    result.data.set(imageData.data);
+    return result;
 }
 
-function isTransparent(color) {
-    return color[3] === 0;
-}
-
-function averageOf(colors) {
-    var cntA = 0, cntC = 0, sum = [0, 0, 0, 0];
-    for (const color of colors) {
-        cntA++;
-        if (!isTransparent(color)) cntC++;
-        color.forEach((v, i) => sum[i] += v);
-    }
-    return [...sum.slice(0, 3).map(v => cntC === 0 ? 0 : v / cntC), sum[3] / cntA].map(v => Math.round(v));
-}
-
-const algorithms = [
-    {
-        name: "first color in tile",
-        func: makeTileSampledAlgo(function(colors) { return L.first(colors); }),
-    },
-    {
-        name: "most significant color in tile",
-        func: makeTileSampledAlgo(function(colors) {
-            return max(frequencies(colors, areSameColor), (a, b) => a[1] - b[1])[0];
-        }),
-    },
-    {
-        name: "least significant color in tile",
-        func: makeTileSampledAlgo(function(colors) {
-            return min(frequencies(colors, areSameColor), (a, b) => a[1] - b[1])[0];
-        }),
-    },
-    {
-        name: "most significant color in tile with tolerance",
-        func: makeTileSampledAlgo(function(colors, {tolerance}) {
-            return max(frequencies(colors, areAlmostSameColor(tolerance)), (a, b) => a[1] - b[1])[0];
-        }),
-        params: {
-            tolerance: {
-                type: 'range',
-                min: 0,
-                max: 1,
-                initial: 0.5,
-            },
-        },
-    },
-    {
-        name: "least significant color in tile with tolerance",
-        func: makeTileSampledAlgo(function(colors, {tolerance}) {
-            return min(frequencies(colors, areAlmostSameColor(tolerance)), (a, b) => a[1] - b[1])[0];
-        }),
-        params: {
-            tolerance: {
-                type: 'range',
-                min: 0,
-                max: 1,
-                initial: 0.5,
-            },
-        },
-    },
-    {
-        name: "average color in tile",
-        func: makeTileSampledAlgo(averageOf),
-    },
+const FloydSteinbergDiffusionMatrix = [
+    /*    -             #     */ [1, 0, 7/16],
+    [-1, 1, 3/16], [0, 1, 5/16], [1, 1, 1/16],
 ];
 
-function inputModule({DOM}) {
-    const file$ = DOM.select('#image-file-input').events('change')
-        .map(ev => ev.target.files)
-        .filter(files => files.length > 0)
-        .map(files => files[0]);
+const JarvisJudiceNinkeDiffusionMatrix = [
+    /*    -              -             #     */ [1, 0, 7/48], [2, 0, 5/48],
+    [-2, 1, 3/48], [-1, 1, 5/48], [0, 1, 7/48], [1, 1, 5/48], [2, 1, 3/48],
+    [-2, 2, 1/48], [-1, 2, 3/48], [0, 2, 5/48], [1, 2, 3/48], [2, 2, 1/48],
+];
 
-    const image$ = DOM.select('#input .preview img').events('load')
-        .map(ev => ev.target)
-        .filter(isValidImage);
-
-    const previewBackgroundColor$ = rxjs.Observable.combineLatest(
-        ...['red', 'green', 'blue', 'alpha'].map(component => DOM
-            .select(`#input .preview .background-color .color-component-${component} input`)
-            .events('change')
-            .map(ev => ev.target.value)
-            .startWith(0)
-        )
-    );
-
-    const canvas$ = DOM.select('#input .preview canvas').element().distinctUntilChanged();
-
-    return {
-        vdom$: rxjs.Observable.combineLatest(
-            file$.map(file => URL.createObjectURL(file)).startWith(null),
-            previewBackgroundColor$,
-        ).map(([imgSrc, previewBackgroundColor]) => section('#input', [
-                div('.file-input', [
-                    label({attrs: {for: 'image-file-input'}}, "Input image: "),
-                    input('#image-file-input', {attrs: {type: 'file', accept: 'image/*'}}),
-                ]),
-                div('.preview', [
-                    img({attrs: {src: imgSrc || undefined}}),
-                    div([
-                        canvas({attrs: {
-                            width: 480,
-                            height: 480,
-                            style: `background-color: ${makeRgbaString(...previewBackgroundColor)}`,
-                        }}),
-                    ]),
-                    div('.background-color', [
-                        label('Background color'),
-                        div([
-                            ...['red', 'green', 'blue', 'alpha'].map((component, i) =>
-                                div(`.color-component-input.color-component-${component}`, [
-                                    label(component[0].toUpperCase()),
-                                    input({attrs: {type: 'number', min: 0, max: 255, value: previewBackgroundColor[i]}})
-                                ])
-                            ),
-                        ]),
-                    ]),
-                ]),
-            ]),
+function palettizeWithErrorDiffusion(sourceImageData, palette, diffusionMatrix) {
+    const result = cloneImageData(sourceImageData);
+    ix.pipe(
+        ix.ops.lazy.product(
+            ix.ops.lazy.range(0, result.height),
+            ix.ops.lazy.range(0, result.width),
         ),
-        image$,
-        sideEffect$: rxjs.Observable.combineLatest(image$, canvas$).map(([image, canvas]) => ({
-            func: (image, canvas) => {
-                const ctx = canvas.getContext('2d');
-                transferImageToCanvas(image, ctx);
-            },
-            args: [image, canvas],
-        })),
+        ix.ops.forEach(([rowidx, colidx]) => {
+            const srcpix = pixelAtCoords(result, colidx, rowidx);
+            const respix = closest(color => C.distanceOf(srcpix, color))(palette);
+            const error = V.differenceOf(srcpix, respix);
+            srcpix.set(respix);
+            diffusionMatrix
+                .map(([dx, dy, s]) => [pixelAtCoords(result, colidx + dx, rowidx + dy), s])
+                .filter(([pix, s]) => pix)
+                .forEach(([pix, s]) => pix.set(V.sumOf(pix, V.uniformScale(error, s))));
+        }),
+    )
+    return result;
+}
+
+function thresholdMatrixToMap(thresholdMatrix) {
+    return (colidx, rowidx) => {
+        const row = thresholdMatrix[rowidx % thresholdMatrix.length];
+        return row[colidx % row.length];
     };
 }
 
-function parseParamValue(type, value) {
-    switch (type) {
-        case 'range':
-            return parseFloat(value);
-        default:
-            throw new Error(`Unknown parameter type: ${type}`);
-    }
-}
-
-function renderAlgo(algo, canvas, image, resolution, pixelSize, paramValues) {
-    const ctx = canvas.getContext('2d');
-    transferImageToCanvas(image, ctx);
-    const imageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.canvas.width = ctx.canvas.height = resolution * pixelSize;
-    console.log("running algo", algo.name, paramValues);
-    const colors = algo.func(imageData, resolution, paramValues);
-    colors.forEach((row, v) => row.forEach((color, h) => {
-        ctx.fillStyle = makeRgbaString(...color);
-        ctx.fillRect(h * pixelSize, v * pixelSize, pixelSize, pixelSize);
-    }));
-    console.log("done.");
-}
-
-function algoModule(algo, {DOM, image$, outputResolution$, outputPixelSize$}) {
-    const algoDOM = DOM.select(`.algo[data-name="${algo.name}"]`);
-    const active$ = algoDOM.select('label input[type="checkbox"]').events('change')
-        .map(ev => ev.target.checked).startWith(false);
-    const canvas$ = algoDOM.select('canvas').element().distinctUntilChanged();
-
-    const parameters = Object.entries(algo.params || {}).map(
-        ([key, param]) => {
-            const value$ = algoDOM.select(`input[name="${key}"]`)
-                .events('change')
-                .map(ev => ev.target.value)
-                .map(value => parseParamValue(param.type, value))
-                .startWith(param.initial);
-            const vdom$ = value$.map(
-                value => label('.parameter', {dataset: {'inputtype': param.type}}, [
-                    span(key),
-                    input({
-                        attrs: {
-                            name: key,
-                            type: param.type,
-                            step: 0.01,
-                            min: param.min,
-                            max: param.max,
-                            value
-                        }
-                    }),
-                ])
-            );
-            return {
-                key,
-                vdom$,
-                value$,
-            }
-        }
-    );
-    const paramVdom$s = parameters.map(({vdom$}) => vdom$);
-    const paramVdoms$ = parameters.length > 0 ? rxjs.Observable.combineLatest(...paramVdom$s) : rxjs.Observable.of([]);
-    const paramValue$s = parameters.map(({value$}) => value$);
-    const paramValues$ = parameters.length > 0
-        ? rxjs.Observable.combineLatest(...paramValue$s).map(
-            values => values.reduce((obj, val, idx) => Object.assign(obj, {[parameters[idx].key]: val}), {})
-        )
-        : rxjs.Observable.of({});
-    return {
-        vdom$: rxjs.Observable.combineLatest(active$, paramVdoms$).map(
-            ([active, paramVdoms]) =>
-                div('.algo', {dataset: {name: algo.name, active}}, [
-                    div([
-                        header([
-                            label([
-                                i('.active.fa.fa-caret-' + (active ? 'down' : 'right')),
-                                span(algo.name),
-                                input({attrs: {type: 'checkbox', checked: active}}),
-                            ]),
-                        ]),
-                        canvas({attrs: {title: algo.name}}),
-                        div('.parameters', [
-                            ...paramVdoms,
-                        ]),
-                    ]),
-                ])
+function palettizeWithThresholdMap(sourceImageData, palette, thresholdMap) {
+    const result = cloneImageData(sourceImageData);
+    ix.pipe(
+        ix.ops.lazy.product(
+            ix.ops.lazy.range(0, result.height),
+            ix.ops.lazy.range(0, result.width),
         ),
-        sideEffect$: rxjs.Observable.combineLatest(
-            canvas$, image$, outputResolution$, outputPixelSize$, paramValues$, active$
-        ).filter(
-            ([canvas, image, resolution, pixelSize, paramValues, active]) => active
-        ).map(
-            ([canvas, image, resolution, pixelSize, paramValues, active]) => ({
-                func: renderAlgo,
-                args: [algo, canvas, image, resolution, pixelSize, paramValues],
-            })
-        ),
-    }
-}
-
-function outputModule({DOM, image$}) {
-    const outputResolution$ = DOM.select('#output-resolution').events('change').map(ev => parseInt(ev.target.value)).startWith(64);
-    const outputPixelSize$ = DOM.select('#output-pixel-size').events('change').map(ev => parseInt(ev.target.value)).startWith(4);
-
-    const algoModules = algorithms.map(
-        algo => algoModule(algo, {DOM: DOM.select('#output #algos'), image$, outputResolution$, outputPixelSize$})
+        ix.ops.forEach(([rowidx, colidx]) => {
+            const threshold = thresholdMap(colidx, rowidx);
+            const pixel = pixelAtCoords(result, colidx, rowidx);
+            const closest2 = ix.ops.strict.partialSort(color => C.distanceOf(pixel, color))(2)(palette);
+            const selected = closest2[(C.distanceOf(pixel, closest2[0]) / C.distanceOf(...closest2) < threshold) ? 0 : 1];
+            pixel.set(selected);
+        }),
     );
-
-    return {
-        vdom$: rxjs.Observable.combineLatest(outputResolution$, outputPixelSize$, ...algoModules.map(({vdom$}) => vdom$))
-            .map(([outputResolution, outputPixelSize, ...algoVdoms]) => section('#output', [
-                div('.output-param', [
-                    label({attrs: {for: 'output-resolution'}}, "Output resolution:"),
-                    input('#output-resolution', {attrs: {type: 'number', required: true, min: 1, value: outputResolution}}),
-                ]),
-                div('.output-param', [
-                    label({attrs: {for: 'output-pixel-size'}}, "Output pixel size:"),
-                    input('#output-pixel-size', {attrs: {type: 'number', required: true, min: 1, value: outputPixelSize}}),
-                ]),
-                section('#algos', algoVdoms),
-            ])),
-        sideEffect$: rxjs.Observable.merge(...algoModules.map(({sideEffect$}) => sideEffect$))
-    }
+    return result;
 }
 
-function app({DOM}) {
-    const {vdom$: inputVdom$, image$, sideEffect$: inputSideEffect$} = inputModule({DOM});
-    const {vdom$: outputVdom$, sideEffect$: outputSideEffect$} = outputModule({DOM, image$});
-
-    return {
-        DOM: rxjs.Observable.combineLatest(inputVdom$, outputVdom$)
-            .map(([inputVdom, outputVdom]) => main([
-                inputVdom,
-                outputVdom
-            ])),
-        sideEffect: rxjs.Observable.merge(inputSideEffect$, outputSideEffect$),
-    };
-}
+window.rxjs = rxjs;
+window.rxjs_ops = rxjs_operators;
+window.ix = ix;
+window.main = {
+    asUint32Array,
+    closest,
+    createImageDataView,
+    createInputImage,
+    createIntegerControl,
+    Color: C,
+    diffusionMatrices: {
+        FloydSteinbergDiffusionMatrix,
+        JarvisJudiceNinkeDiffusionMatrix,
+    },
+    downsample,
+    frequencies,
+    gaussianBlur,
+    makePalette,
+    palettizeWithErrorDiffusion,
+    palettizeWithThresholdMap,
+    pixelsIn,
+    pixelsToImage,
+    thresholdMatrices: {
+        '3x3': [
+            [0/9, 7/9, 3/9],
+            [6/9, 5/9, 2/9],
+            [4/9, 1/9, 8/9],
+        ],
+        '8x8': [
+            [0/64, 48/64, 12/64, 60/64, 3/64, 51/64, 15/64, 63/64],
+            [32/64, 16/64, 44/64, 28/64, 35/64, 19/64, 47/64, 31/64],
+            [8/64, 56/64, 4/64, 52/64, 11/64, 59/64, 7/64, 55/64],
+            [40/64, 24/64, 36/64, 20/64, 43/64, 27/64, 39/64, 23/64],
+            [2/64, 50/64, 14/64, 62/64, 1/64, 49/64, 13/64, 61/64],
+            [34/64, 18/64, 46/64, 30/64, 33/64, 17/64, 45/64, 29/64],
+            [10/64, 58/64, 6/64, 54/64, 9/64, 57/64, 5/64, 53/64],
+            [42/64, 26/64, 38/64, 22/64, 41/64, 25/64, 37/64, 21/64],
+        ],
+    },
+    thresholdMatrixToMap,
+    V,
+};
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('head').appendChild(require('./style').createStyleElement());
-
-    run(app, {
-        DOM: makeDOMDriver('body'),
-        sideEffect: funcAndArgs$ => { adapt(funcAndArgs$).subscribe(({func, args}) => func(...args)); }
-    });
 });

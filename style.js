@@ -20,7 +20,7 @@ const styleSheet = makeStyleSheet()
     'display': 'flex',
     'justify-content': 'space-between',
 })
-.n('#input', $ => $
+.r('#input', $ => $
     .r({
         'align-items': 'center',
         'display': 'inline-flex',
@@ -32,7 +32,7 @@ const styleSheet = makeStyleSheet()
         'border-radius': '3px',
         'padding': '0.5em',
     })
-    .n('.preview', $ => $
+    .r('.preview', $ => $
         .r({
             'align-items': 'center',
             'display': 'flex',
@@ -45,7 +45,7 @@ const styleSheet = makeStyleSheet()
             'max-height': '480px',
             'max-width': '480px',
         })
-        .n('.background-color', $ => $
+        .r('.background-color', $ => $
             .r({
                 'align-items': 'center',
                 'background-color': '#999',
@@ -58,7 +58,7 @@ const styleSheet = makeStyleSheet()
             .r('label', {
                 'margin': '0.25em',
             })
-            .n('.color-component-input', $ => $
+            .r('.color-component-input', $ => $
                 .r({
                     'display': 'inline-block',
                     'margin': '0 0.25em',
@@ -84,13 +84,13 @@ const styleSheet = makeStyleSheet()
         )
     )
 )
-.n('#output', $ => $
+.r('#output', $ => $
     .r({
         'display': 'inline-block',
         'margin': '1em',
         'max-width': '50vw',
     })
-    .n('.output-param', $ => $
+    .r('.output-param', $ => $
         .r({
             'background-color': '#999',
             'border-radius': '3px',
@@ -105,12 +105,12 @@ const styleSheet = makeStyleSheet()
             'width': '46px',
         })
     )
-    .n('#algos', $ => $
+    .r('#algos', $ => $
         .r({
             'display': 'flex',
             'flex-wrap': 'wrap',
         })
-        .n('.algo', $ => $
+        .r('.algo', $ => $
             .r({
                 'display': 'inline-block',
                 'margin': '1px',
@@ -122,8 +122,8 @@ const styleSheet = makeStyleSheet()
                 'display': 'flex',
                 'flex-direction': 'column',
             })
-            .n('header', $ => $
-                .n('label', $ => $
+            .r('header', $ => $
+                .r('label', $ => $
                     .r({
                         'display': 'flex',
                         'padding': '0.25em',
@@ -140,12 +140,12 @@ const styleSheet = makeStyleSheet()
                 'align-self': 'center',
                 'background-color': middleGray,
             })
-            .n('.parameters', $ => $
+            .r('.parameters', $ => $
                 .r({
                     'display': 'flex',
                     'flex-wrap': 'wrap',
                 })
-                .n('.parameter[data-inputtype="range"]', $ => $
+                .r('.parameter[data-inputtype="range"]', $ => $
                     .r({
                         'align-items': 'center',
                         'background-color': '#999',
@@ -162,7 +162,7 @@ const styleSheet = makeStyleSheet()
                 )
             )
         )
-        .n('.algo[data-active="false"]', $ => $
+        .r('.algo[data-active="false"]', $ => $
             .r('canvas', '.parameters', {
                 'display': 'none',
             })
